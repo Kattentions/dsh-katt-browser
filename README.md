@@ -44,6 +44,8 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
     downloadDir: ''        # default folder for browser_download
     allowedHosts: []       # non-empty = allow these domains (and subdomains) only
     revealPanel: false     # true = tool calls may open the sidebar (off by default)
+    cdpIdleDetachMs: 45000 # detach CDP after this many idle ms (0 = stay attached)
+    instrument: true       # false = skip page instrumentation on heavy sites
 ```
 
 ## What it gives the agent
@@ -84,6 +86,17 @@ A canvas game whose state never touches the DOM: `browser_instrument` reads the 
 (score, board, move count) instead of taking a screenshot.
 
 ![Canvas game state via worker messages](docs/images/canvas-game.png)
+
+### Performance
+
+- **Idle detach**: 45 s without a browser call detaches CDP (`cdpIdleDetachMs`), reconnecting on
+  the next one. Chromium stops throttling a page that has a debugger attached, so a long-lived
+  attachment kept the browser panel rendering at the display refresh rate.
+- **Focus emulation is temporary**: enabled for ~4 s around click/type only, instead of always on.
+- **Heartbeat**: 8 s instead of 2.5 s, and skipped entirely when the data is unchanged or the
+  window is hidden.
+- **Instrumentation**: previews only JSON bodies up to 256 KiB; `instrument: false` turns the
+  page hooks off on heavy sites.
 
 ### Panel visibility (multi-workspace)
 

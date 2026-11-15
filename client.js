@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.3';
+    const VERSION = '0.9.4';
 
     const ORIGINS = [''];
     try {
@@ -890,16 +890,26 @@ window.__ModuleLoader__.load({
       return out;
     }
 
+    let lastProbeKey = '';
+    let lastStateKey = '';
     async function heartbeat() {
       if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
       // Self-heal: the heartbeat proves the Host is up, so keep the command poll attached.
       if (!pollStarted && !pollStopped) pollLoop();
+      // A background window has no one looking at the panel; skip the round trips entirely.
+      if (typeof document !== 'undefined' && document.hidden) return;
       const view = findWebview();
       const probe = { at: Date.now(), hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
       if (view) probe.capabilities = capabilities(view);
-      await post(PROBE_URL, probe);
+      // Only post when something actually changed: a quiet panel used to cost a POST every
+      // 2.5s for identical data, and every reply woke the Host for nothing.
+      const probeKey = JSON.stringify([probe.hasWebview, probe.count, probe.diagnose]);
+      if (probeKey !== lastProbeKey) { lastProbeKey = probeKey; await post(PROBE_URL, probe); }
       if (!view) return;
       const state = await stateOf(view);
+      const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
+      if (stateKey === lastStateKey) return;
+      lastStateKey = stateKey;
       await post(PAGE_STATE_URL, { ...state, v: VERSION });
     }
 
@@ -911,7 +921,7 @@ window.__ModuleLoader__.load({
         bootstrap();
         heartbeat();
         if (pageStateTimer) clearInterval(pageStateTimer);
-        pageStateTimer = setInterval(heartbeat, 2500);
+        pageStateTimer = setInterval(heartbeat, 8000);
         ctx.effect(() => () => {
           clearInterval(pageStateTimer);
           pollStopped = true;

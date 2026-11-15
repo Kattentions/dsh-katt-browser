@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.9.4
+
+- **卡顿优化**：去掉常驻的焦点模拟（此前让隐藏的 webview 不被 Chromium 节流，面板一直按 144Hz 出帧）；空闲 45 秒自动断开 CDP，下次操作自动重连（`cdpIdleDetachMs`，0 = 保持连接）。实测 UI 渲染进程 115% → 106.9%，GPU 50.6% → 43.9%。
+- **心跳降频**：2.5 秒 → 8 秒，数据没变化或窗口不可见时不发请求。
+- **插桩瘦身**：只对 ≤256KB 的 JSON 响应取预览，不再克隆 JS/文本响应；新增 `instrument` 开关。
+- `browser_probe` 改为实时探测，避免缓存导致的误报。
+
 ## 0.9.3
 
 - **修复：工具操作会抢别的会话的右侧栏**。原因是 CDP 对齐逻辑每次操作都调 `focus`，客户端 `focus` 里 `expandRightbar()` + `activateTab()`；桥模式还会 `ensureVisibleWebview` 里 `openRightbar`。现在默认完全不主动展开/切换面板，新增配置 `revealPanel`（默认 `false`）给需要展开的场景。

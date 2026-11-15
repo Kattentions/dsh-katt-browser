@@ -24,6 +24,8 @@ export const Config = z.object({
   downloadDir: z.string().description('browser_download 的默认保存目录（默认 用户目录/Downloads/katt-browser）'),
   allowedHosts: z.array(z.string()).description('域名白名单；非空时只允许访问这些域名及其子域'),
   revealPanel: z.boolean().default(false).description('工具操作时是否主动展开右侧栏（默认 false，避免抢当前会话的面板）'),
+  instrument: z.boolean().default(true).description('是否注入页面插桩（worker/fetch/XHR/WebSocket）；重页面可关掉以减少开销'),
+  cdpIdleDetachMs: z.natural().default(45000).description('空闲多少毫秒后断开 CDP（默认 45000；0 = 一直保持连接）。断开后下次操作会自动重连，避免长时间附着影响 Chromium 渲染节流'),
 });
 
 const EDGE_CANDIDATES = [
@@ -1021,12 +1023,15 @@ function buildTools(browser) {
       description: '检查右侧栏浏览器面板的原生 webview 是否就绪，以及它支持哪些能力。',
       parameters: schema({}),
       output,
-      execute: async () => ({
-        driver: browser.diagnostics || null,
-        panel: browser.probe
-          ? { ...browser.probe, state: browser.state }
-          : { hasWebview: false, hint: '右侧栏还没有打开“浏览器”标签页，或页面需要刷新加载新版客户端' },
-      }),
+      execute: async () => {
+        await browser.refreshProbe().catch(() => null);
+        return {
+          driver: browser.diagnostics || null,
+          panel: browser.probe
+            ? { ...browser.probe, state: browser.state }
+            : { hasWebview: false, hint: '右侧栏还没有打开“浏览器”标签页，或页面需要刷新加载新版客户端' },
+        };
+      },
     },
     {
       name: 'browser_serve',

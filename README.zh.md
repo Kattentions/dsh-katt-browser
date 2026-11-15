@@ -42,6 +42,8 @@ dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
     downloadDir: ''        # browser_download 默认保存目录
     allowedHosts: []       # 非空时只允许访问这些域名及其子域
     revealPanel: false     # true = 工具操作时允许展开侧栏（默认关闭）
+    cdpIdleDetachMs: 45000 # 空闲多少毫秒断开 CDP（默认 45000；0 = 不断开）
+    instrument: true       # false = 重页面跳过插桩
 ```
 
 ## 给 agent 的能力
@@ -102,6 +104,13 @@ browser_network  filter=api      -> GET /api/... 200 application/json 120ms
 browser_cookies save name=work   -> 17 个 Cookie、10 个 localStorage、1 个 IndexedDB，加密落盘
 browser_cookies load name=work   -> storageRestored: true
 ```
+
+### 性能
+
+- **空闲断开 CDP**：45 秒没有浏览器操作就 detach（`cdpIdleDetachMs`），下次操作自动重连。带调试器的页面 Chromium 不做节流，长时间附着会让面板一直按显示器刷新率出帧。
+- **焦点模拟只短暂开启**：点击/输入前后约 4 秒，不再常驻。
+- **心跳**：2.5 秒 → 8 秒；数据没变化或窗口不可见时完全不发。
+- **插桩**：只对 256KB 以内的 JSON 响应取预览；重页面可以 `instrument: false` 关掉页面钩子。
 
 ### 面板可见性（多工作区）
 
