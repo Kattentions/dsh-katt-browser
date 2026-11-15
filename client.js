@@ -1,0 +1,911 @@
+window.__ModuleLoader__.load({
+  id: '@local/katt-browser',
+  factory(require) {
+
+    /* ------------------------------------------------------------------------
+       katt-browser client half (webview driver).
+
+       The panel is the shipped right-sidebar Browser tab: a native Electron
+       <webview> guest. This plugin does not render anything itself; it forwards
+       commands from the Host tools to that guest through the webview element API
+       and reports the guest's state back. No screenshots are streamed, so the
+       panel renders at native speed and costs no extra CPU or memory.
+    ------------------------------------------------------------------------ */
+
+    const RESULT_URL = '/api/katt-browser/result';
+    const PAGE_STATE_URL = '/api/katt-browser/page-state';
+    const PROBE_URL = '/api/katt-browser/probe';
+    const PULL_URL = '/api/katt-browser/pull';
+    const HELLO_URL = '/api/katt-browser/client-hello';
+    const VERSION = '0.9.2';
+
+    const ORIGINS = [''];
+    try {
+      const injected = window.__KATT_BROWSER_ORIGIN__;
+      if (typeof injected === 'string' && injected && ORIGINS.indexOf(injected) < 0) ORIGINS.push(injected);
+    } catch {}
+    try {
+      const transport = window.__DSH_TRANSPORT__;
+      const streamBase = transport && typeof transport.streamBaseUrl === 'string' ? transport.streamBaseUrl.replace(/\/+$/, '') : '';
+      if (streamBase && ORIGINS.indexOf(streamBase) < 0) ORIGINS.push(streamBase);
+    } catch {}
+    let originIndex = 0;
+    const apiBase = () => ORIGINS[originIndex] || '';
+    const bridgeGeneration = typeof window !== 'undefined'
+      ? (window.__KATT_BRIDGE_GEN__ = (Number(window.__KATT_BRIDGE_GEN__) || 0) + 1)
+      : 1;
+
+    let pluginCtx = null;
+    let pageStateTimer = null;
+
+    const sidebarRight = () => {
+      try {
+        if (!pluginCtx) return null;
+        return (typeof pluginCtx.get === 'function' && pluginCtx.get('sidebarRight')) || null;
+      } catch { return null; }
+    };
+
+    const layout = () => {
+      try {
+        if (!pluginCtx) return null;
+        return (typeof pluginCtx.get === 'function' && pluginCtx.get('layout')) || null;
+      } catch { return null; }
+    };
+
+    function expandRightbar() {
+      // Expanding the right column matters: a collapsed sidebar can hold the tab
+      // without mounting its pane, and the native <webview> only exists once mounted.
+      const layoutService = layout();
+      if (layoutService && typeof layoutService.openRightbar === 'function') {
+        try { layoutService.openRightbar(true, false); } catch {}
+      }
+    }
+
+    function post(url, body) {
+      return fetch(apiBase() + url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }).then((response) => response.json().catch(() => null)).catch(() => null);
+    }
+
+    /* ----------------------------------------------------------- webview guest */
+
+
+    function tabIdOf(element) {
+      let node = element;
+      for (let depth = 0; depth < 10 && node; depth += 1) {
+        if (node.dataset && node.dataset.sidebarRightTab) return node.dataset.sidebarRightTab;
+        node = node.parentElement;
+      }
+      return '';
+    }
+
+    function tabChip(tabId) {
+      if (!tabId) return null;
+      try { return document.querySelector(`[data-dockkit-tab="${tabId}"]`); } catch { return null; }
+    }
+
+    async function activateTab(tabId) {
+      const chip = tabChip(tabId);
+      if (!chip) return false;
+      if (chip.getAttribute('aria-selected') === 'true') return true;
+      try { chip.click(); } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return true;
+    }
+
+    function measure(element) {
+      const rect = element.getBoundingClientRect();
+      return rect.width * rect.height;
+    }
+
+    function findWebview() {
+      try {
+        const all = [...document.querySelectorAll('webview')];
+        if (all.length === 0) return null;
+        // Several browser tabs can be open; only the visible one can receive input.
+        let best = null;
+        let bestArea = 0;
+        for (const element of all) {
+          const area = measure(element);
+          if (area <= 4) continue;
+          const style = window.getComputedStyle(element);
+          if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) continue;
+          if (area > bestArea) { best = element; bestArea = area; }
+        }
+        return best || all[0] || null;
+      } catch { return null; }
+    }
+
+    // A background tab keeps its <webview> in the DOM with a 0x0 box; activate its tab
+    // chip first so the pane gets laid out and can receive input.
+    async function ensureVisibleWebview() {
+      let view = findWebview();
+      if (!view) return null;
+      if (measure(view) > 4) { installSameTabPolicy(view); return view; }
+      const tabId = tabIdOf(view);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const layoutService = layout();
+        if (layoutService && typeof layoutService.openRightbar === 'function') {
+          try { layoutService.openRightbar(true, false); } catch {}
+        }
+        if (tabId) await activateTab(tabId);
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        view = findWebview();
+        if (view && measure(view) > 4) { installSameTabPolicy(view); return view; }
+      }
+      return view;
+    }
+
+    async function waitForWebview(timeoutMs = 10000) {
+      const deadline = Date.now() + timeoutMs;
+      let view = await ensureVisibleWebview();
+      while (!view && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        view = await ensureVisibleWebview();
+      }
+      return view || null;
+    }
+
+    function capabilities(view) {
+      const names = ['loadURL', 'getURL', 'getTitle', 'executeJavaScript', 'sendInputEvent', 'goBack', 'goForward', 'reload', 'capturePage', 'focus', 'stop', 'isLoading'];
+      const out = {};
+      for (const name of names) out[name] = typeof view[name] === 'function';
+      out.tag = view.tagName;
+      out.src = typeof view.getURL === 'function' ? (() => { try { return view.getURL(); } catch { return ''; } })() : '';
+      return out;
+    }
+
+    // Links with target=_blank / window.open() normally open a new panel tab; the agent
+    // (and the user browsing through it) expects in-place navigation with history, so
+    // force every popup back into the current tab.
+    const SAME_TAB_POLICY = `(() => {
+      try {
+        if (window.__kattSameTabPolicy) return 'already';
+        window.__kattSameTabPolicy = true;
+        const nativeOpen = window.open;
+        window.open = function (url) {
+          try { if (url) location.assign(String(url)); } catch {}
+          void nativeOpen;
+          return null;
+        };
+        document.addEventListener('click', (event) => {
+          const target = event.target;
+          const anchor = target && target.closest ? target.closest('a[target]') : null;
+          if (anchor && anchor.target && anchor.target.toLowerCase() !== '_self') anchor.target = '_self';
+        }, true);
+        document.addEventListener('submit', (event) => {
+          const form = event.target;
+          if (form && form.target && form.target.toLowerCase() !== '_self') form.target = '_self';
+        }, true);
+        return 'installed';
+      } catch { return 'failed'; }
+    })()`;
+
+    function installSameTabPolicy(view) {
+      try {
+        if (view.__kattSameTabHooked) return;
+        view.__kattSameTabHooked = true;
+        for (const eventName of ['dom-ready', 'did-finish-load', 'did-navigate']) {
+          try {
+            view.addEventListener(eventName, () => {
+              try { view.executeJavaScript(SAME_TAB_POLICY, true); } catch {}
+            });
+          } catch {}
+        }
+      } catch {}
+      try { view.executeJavaScript(SAME_TAB_POLICY, true); } catch {}
+    }
+
+    function keyboardCode(name) {      const map = {
+        Enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
+        Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
+        Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
+        Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
+        Delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
+        ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+        ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
+        ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
+        ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+        Home: { key: 'Home', code: 'Home', keyCode: 36 },
+        End: { key: 'End', code: 'End', keyCode: 35 },
+        PageUp: { key: 'PageUp', code: 'PageUp', keyCode: 33 },
+        PageDown: { key: 'PageDown', code: 'PageDown', keyCode: 34 },
+      };
+      return map[name] || null;
+    }
+
+    // The same element enumeration the Host used to run over CDP, now executed inside
+    // the guest. Refs are indices into this list.
+    const ENUM_FN = `function kattList() {
+      const nodes = [];
+      const selector = 'a,button,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[contenteditable="true"]';
+      for (const el of document.querySelectorAll(selector)) {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (rect.width < 2 || rect.height < 2) continue;
+        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
+        nodes.push(el);
+      }
+      return nodes;
+    }
+    function kattLabel(el) {
+      const raw = el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
+      return String(raw).replace(/\\s+/g, ' ').trim().slice(0, 90);
+    }`;
+
+    async function guestEval(view, code) {
+      if (typeof view.executeJavaScript !== 'function') throw new Error('webview 不支持 executeJavaScript');
+      return view.executeJavaScript(code, true);
+    }
+
+    async function guestSnapshot(view) {
+      const script = `(() => { ${ENUM_FN}
+        const els = kattList();
+        const total = els.length;
+        const capped = els.slice(0, 200);
+        return {
+          elements: capped.map((el, index) => {
+            const rect = el.getBoundingClientRect();
+            return {
+              ref: index + 1,
+              tag: el.tagName.toLowerCase(),
+              type: el.type || '',
+              label: kattLabel(el),
+              x: Math.round(rect.x + rect.width / 2),
+              y: Math.round(rect.y + rect.height / 2),
+              inViewport: rect.top >= 0 && rect.left >= 0 && rect.bottom <= innerHeight && rect.right <= innerWidth,
+            };
+          }),
+          total,
+          text: document.body ? document.body.innerText.slice(0, 3000) : '',
+          url: location.href,
+          title: document.title,
+        };
+      })()`;
+      return guestEval(view, script);
+    }
+
+    async function guestElementCenter(view, ref) {
+      const script = `(() => { ${ENUM_FN}
+        const el = kattList()[${Number(ref) - 1}];
+        if (!el) return null;
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, tag: el.tagName.toLowerCase(), label: kattLabel(el) };
+      })()`;
+      return guestEval(view, script);
+    }
+
+    function sendInput(view, event) {
+      if (typeof view.sendInputEvent !== 'function') return false;
+      try { view.sendInputEvent(event); return true; } catch { return false; }
+    }
+
+    function guestSize(view) {
+      const rect = view.getBoundingClientRect();
+      return { width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) };
+    }
+
+    async function doClick(view, args) {
+      const ref = Number(args && args.ref);
+      const center = await guestElementCenter(view, ref);
+      if (!center) throw new Error('ref e' + ref + ' 不存在，请重新 snapshot');
+      const used = sendInput(view, { type: 'mouseDown', x: Math.round(center.x), y: Math.round(center.y), button: 'left', clickCount: 1 })
+        && sendInput(view, { type: 'mouseUp', x: Math.round(center.x), y: Math.round(center.y), button: 'left', clickCount: 1 });
+      if (!used) {
+        // Fallback for builds without sendInputEvent: a scripted click.
+        await guestEval(view, `(() => { ${ENUM_FN} const el = kattList()[${ref - 1}]; if (el) el.click(); })()`);
+      }
+      return { ok: true, ref, x: Math.round(center.x), y: Math.round(center.y), realInput: used };
+    }
+
+    async function doType(view, args) {
+      const ref = Number(args && args.ref);
+      const text = String((args && args.text) || '');
+      const clear = Boolean(args && args.clear);
+      const submit = Boolean(args && args.submit);
+      const center = await guestElementCenter(view, ref);
+      if (!center) throw new Error('ref e' + ref + ' 不存在，请重新 snapshot');
+      // execCommand('insertText') inserts the whole string once; per-character
+      // sendInputEvent char events sometimes land twice in Electron webviews.
+      const inserted = await guestEval(view, `(() => { ${ENUM_FN}
+        const el = kattList()[${ref - 1}]; if (!el) return false;
+        el.focus();
+        if (${clear ? 'true' : 'false'}) {
+          if ('value' in el) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); }
+          else if (el.isContentEditable) { el.textContent = ''; }
+        }
+        if (typeof document.execCommand === 'function' && document.execCommand('insertText', false, ${JSON.stringify(text)})) return true;
+        if ('value' in el) { el.value = (el.value || '') + ${JSON.stringify(text)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }
+        if (el.isContentEditable) { el.textContent = (el.textContent || '') + ${JSON.stringify(text)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }
+        return false;
+      })()`);
+      if (!inserted) throw new Error('输入框没有接收文字（ref e' + ref + '）');
+      if (submit) {
+        sendInput(view, { type: 'keyDown', keyCode: 'Enter' });
+        sendInput(view, { type: 'keyUp', keyCode: 'Enter' });
+        // The guest's focused control may ignore synthetic keys; submit its form directly.
+        await guestEval(view, `(() => {
+          const el = document.activeElement;
+          if (el && el.form && typeof el.form.requestSubmit === 'function') { el.form.requestSubmit(); return; }
+          if (el && el.form) { el.form.submit(); return; }
+          if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+        })()`);
+      }
+      return { ok: true, ref, typed: text.length, mode: 'insertText' };
+    }
+
+    async function doPress(view, args) {
+      const name = String((args && args.key) || '');
+      const spec = keyboardCode(name);
+      if (spec) {
+        const ok = sendInput(view, { type: 'keyDown', keyCode: name }) && sendInput(view, { type: 'keyUp', keyCode: name });
+        if (!ok) await guestEval(view, `(() => { const el = document.activeElement || document.body; el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(spec.key)}, bubbles: true })); el.dispatchEvent(new KeyboardEvent('keyup', { key: ${JSON.stringify(spec.key)}, bubbles: true })); })()`);
+        return { ok: true, key: name };
+      }
+      if (name.length === 1) {
+        const ok = sendInput(view, { type: 'char', keyCode: name });
+        if (!ok) await guestEval(view, `(() => { const el = document.activeElement; if (!el) return; if ('value' in el) el.value += ${JSON.stringify(name)}; else if (el.isContentEditable) el.textContent += ${JSON.stringify(name)}; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        return { ok: true, inserted: name };
+      }
+      throw new Error('不支持的按键: ' + name);
+    }
+
+    async function doScroll(view, args) {
+      const deltaY = Number((args && args.deltaY) || 0);
+      const size = guestSize(view);
+      const before = Number(await guestEval(view, 'Math.round(window.scrollY) || 0')) || 0;
+      sendInput(view, {
+        type: 'mouseWheel',
+        x: Math.round(size.width / 2),
+        y: Math.round(size.height / 2),
+        deltaX: 0,
+        deltaY,
+        wheelTicksX: 0,
+        wheelTicksY: deltaY / 100,
+        canScroll: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const after = Number(await guestEval(view, 'Math.round(window.scrollY) || 0')) || 0;
+      if (after === before) {
+        // Synthetic wheel events are dropped by some pages; scroll the document directly.
+        await guestEval(view, `(() => {
+          const delta = ${Math.round(deltaY)};
+          const target = document.scrollingElement || document.documentElement || document.body;
+          if (target) target.scrollTop = (target.scrollTop || 0) + delta;
+          if ((Math.round(window.scrollY) || 0) === ${before}) window.scrollBy(0, delta);
+          return Math.round(window.scrollY) || 0;
+        })()`);
+      }
+      return { ok: true, deltaY };
+    }
+
+    async function stateOf(view) {
+      const read = (fn) => { try { return typeof view[fn] === 'function' ? view[fn]() : undefined; } catch { return undefined; } };
+      const size = guestSize(view);
+      return {
+        url: read('getURL') || '',
+        title: read('getTitle') || '',
+        loading: read('isLoading') === true,
+        canGoBack: read('canGoBack') === true,
+        canGoForward: read('canGoForward') === true,
+        viewport: size,
+      };
+    }
+
+    function browserTabs() {
+      try {
+        const right = sidebarRight();
+        if (!right || !right.openTabs || typeof right.openTabs.getSnapshot !== 'function') return [];
+        return right.openTabs.getSnapshot().filter((tab) => tab.kind === 'browser');
+      } catch { return []; }
+    }
+
+    // The shipped panel only creates its <webview> once a page target exists, so the
+    // first navigation has to go through the panel's own address bar.
+    async function navigateViaPanelUi(url) {
+      const inputs = [...document.querySelectorAll('input')].filter((el) => {
+        const placeholder = String(el.getAttribute('placeholder') || '');
+        return /HTTP|地址|address/i.test(placeholder);
+      });
+      const input = inputs[0];
+      if (!input) return false;
+      try {
+        input.focus();
+        // React's controlled input sometimes swallows synthetic input events; calling the
+        // element's own React props is the dependable way to submit the panel's form.
+        const propsKey = Object.keys(input).find((key) => key.startsWith('__reactProps$'));
+        const props = propsKey ? input[propsKey] : null;
+        if (props && typeof props.onChange === 'function') {
+          props.onChange({ target: { value: url }, currentTarget: { value: url } });
+        } else {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, url);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        if (props && typeof props.onKeyDown === 'function') {
+          props.onKeyDown({ key: 'Enter', code: 'Enter', preventDefault() {}, stopPropagation() {}, target: input, currentTarget: input, nativeEvent: { key: 'Enter' } });
+        } else {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+          input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function ensurePanelTab() {
+      // Do not create an empty tab here: the bootstrap below opens one tab that already
+      // carries the target URL, otherwise every first open would leave an extra empty tab.
+      expandRightbar();
+    }
+
+    let cleanedTabs = false;
+    // Bootstrapping and hot reloads leave empty "浏览器" tabs behind; keep the tab that
+    // owns the live guest and close the empty leftovers once per page load.
+    async function cleanupEmptyTabs(view) {
+      if (cleanedTabs || !view) return;
+      cleanedTabs = true;
+      const right = sidebarRight();
+      const keep = tabIdOf(view);
+      const tabs = browserTabs();
+      for (const tab of tabs) {
+        if (tab.tabId === keep) continue;
+        // A browser tab that still shows its start page title has no page in it; only
+        // those are swept, so a tab with a loaded page is never closed behind the user.
+        const chip = tabChip(tab.tabId);
+        const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        if (label !== '浏览器' && label !== 'Browser') continue;
+        if (right && tab.sessionId && typeof right.closeIn === 'function') {
+          try { right.closeIn(tab.sessionId, tab.tabId); } catch {}
+        } else if (chip) {
+          const closer = chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]');
+          if (closer) { try { closer.click(); } catch {} }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+    }
+
+    async function runCommand(op, args) {
+      if (op === 'open' || op === 'navigate') {
+        const url = String((args && args.url) || '');
+        const target = /^(https?:|about:|data:|file:)/i.test(url) ? url : 'https://' + url;
+        await ensurePanelTab();
+        let view = await waitForWebview(1500);
+        let uiDrove = null;
+        if (!view) {
+          // Opening a browser tab with a url parameter makes the shipped panel create its
+          // webview and navigate, which is the only way to bootstrap the guest.
+          const right = sidebarRight();
+          if (right && typeof right.openTab === 'function') {
+            try { right.openTab('browser', { params: { url: target } }); } catch (error) { uiDrove = 'openTab: ' + String(error && error.message ? error.message : error); }
+          }
+          view = await waitForWebview(15000);
+        }
+        if (!view) {
+          uiDrove = uiDrove || 'address-bar';
+          await navigateViaPanelUi(target);
+          view = await waitForWebview(8000);
+        }
+        if (!view) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页（bootstrap=' + uiDrove + '，诊断：' + JSON.stringify(diagnose()) + '）');
+        installSameTabPolicy(view);
+        try { view.focus(); } catch {}
+        const normalize = (value) => String(value || '').replace(/\/+$/, '');
+        let loadError = null;
+        let current = '';
+        try { current = typeof view.getURL === 'function' ? String(view.getURL() || '') : ''; } catch {}
+        if (normalize(current) !== normalize(target)) {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              await view.loadURL(target);
+              loadError = null;
+              break;
+            } catch (error) {
+              const message = String(error && error.message ? error.message : error);
+              let now = '';
+              try { now = String(view.getURL() || ''); } catch {}
+              if (normalize(now) === normalize(target)) { loadError = null; break; }
+              // A bootstrap navigation already heading to this URL reports ERR_ABORTED;
+              // that is not a failure, the page is loading.
+              if (/ERR_ABORTED|\(-3\)/.test(message)) { loadError = null; break; }
+              loadError = message;
+              await new Promise((resolve) => setTimeout(resolve, 400));
+            }
+          }
+        }
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          let loading = false;
+          try { loading = typeof view.isLoading === 'function' ? Boolean(view.isLoading()) : false; } catch {}
+          if (!loading) break;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        const finalState = await stateOf(view);
+        if (loadError && normalize(finalState.url) !== normalize(target)) {
+          throw new Error('打不开 ' + target + '：' + loadError);
+        }
+        cleanupEmptyTabs(view).catch(() => {});
+        return { state: finalState };
+      }
+      if (op === 'page-diag') {
+        // Runs in the DSH page (not the guest): helps attribute UI-level CPU burn.
+        const mode = String((args && args.mode) || 'report');
+        if (mode === 'raf') {
+          // Who keeps the page at ~144 frames per second? Capture rAF call sites for 1s.
+          const original = window.requestAnimationFrame;
+          const counts = new Map();
+          let calls = 0;
+          window.requestAnimationFrame = function instrumented(callback) {
+            calls += 1;
+            try {
+              const stack = String(new Error().stack || '').split('\n').slice(1, 5).join(' | ').replace(/\s+/g, ' ').slice(0, 240);
+              counts.set(stack, (counts.get(stack) || 0) + 1);
+            } catch {}
+            return original.call(window, callback);
+          };
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          window.requestAnimationFrame = original;
+          const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([stack, count]) => ({ count, stack }));
+          return { calls, top };
+        }
+        if (mode === 'pause' || mode === 'resume') {
+          const animations = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
+          for (const animation of animations) {
+            try { if (mode === 'pause') animation.pause(); else animation.play(); } catch {}
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return { mode, touched: animations.length };
+        }
+        const describe = (element) => {
+          let node = element;
+          for (let depth = 0; depth < 8 && node; depth += 1) {
+            const cls = String(node.className || '');
+            const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+            if (text && /row|message|step|status|tool|state/i.test(cls)) return text.slice(0, 100);
+            node = node.parentElement;
+          }
+          return '';
+        };
+        const animations = typeof document.getAnimations === 'function'
+          ? document.getAnimations().map((animation) => {
+            let target = '';
+            let hint = '';
+            try {
+              const element = animation.effect && animation.effect.target;
+              if (element) {
+                target = element.tagName + '.' + String(element.className || '').slice(0, 40);
+                hint = describe(element);
+              }
+            } catch {}
+            return { name: animation.animationName || String(animation.constructor && animation.constructor.name), target, hint, state: animation.playState };
+          })
+          : [];
+        const frames = await new Promise((resolve) => {
+          let count = 0;
+          const start = performance.now();
+          const tick = () => {
+            count += 1;
+            if (performance.now() - start < 1000) requestAnimationFrame(tick);
+            else resolve(count);
+          };
+          requestAnimationFrame(tick);
+        });
+        return {
+          frames,
+          animations: animations.slice(0, 25),
+          animationCount: animations.length,
+          nodes: document.querySelectorAll('*').length,
+          focused: typeof document.hasFocus === 'function' ? document.hasFocus() : null,
+          visibility: document.visibilityState,
+        };
+      }
+      const view = await waitForWebview(4000);
+      if (!view) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页');
+      if (op === 'state') return { state: await stateOf(view) };
+      if (op === 'evaluate') return { value: await guestEval(view, String((args && args.code) || 'null')) };
+      if (op === 'snapshot') return await guestSnapshot(view);
+      if (op === 'click') return doClick(view, args);
+      if (op === 'type') return doType(view, args);
+      if (op === 'press') return doPress(view, args);
+      if (op === 'scroll') return doScroll(view, args);
+      if (op === 'back') { if (typeof view.goBack === 'function') view.goBack(); else await guestEval(view, 'history.back()'); return { ok: true }; }
+      if (op === 'forward') { if (typeof view.goForward === 'function') view.goForward(); else await guestEval(view, 'history.forward()'); return { ok: true }; }
+      if (op === 'reload') { if (typeof view.reload === 'function') view.reload(); return { ok: true }; }
+      if (op === 'stop') { if (typeof view.stop === 'function') view.stop(); return { ok: true }; }
+      if (op === 'screenshot') {
+        if (typeof view.capturePage !== 'function') throw new Error('webview 不支持 capturePage');
+        let lastError = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const image = await view.capturePage();
+            const dataUrl = image && typeof image.toDataURL === 'function' ? image.toDataURL() : '';
+            if (dataUrl) return { dataUrl };
+            lastError = '空截图';
+          } catch (error) {
+            lastError = String(error && error.message ? error.message : error);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        throw new Error('截图失败（窗口被遮挡或渲染进程不可见）：' + lastError);
+      }
+      if (op === 'sweep-stale') {
+        // Panel tabs whose guest target is already gone leave a dead tab behind. Close
+        // only those: a tab holding any <webview> element is a real page and stays.
+        const right = sidebarRight();
+        const live = new Set([...document.querySelectorAll('webview')].map((element) => tabIdOf(element)).filter(Boolean));
+        let closed = 0;
+        for (const tab of browserTabs()) {
+          if (live.has(tab.tabId)) continue;
+          if (right && tab.sessionId && typeof right.closeIn === 'function') {
+            try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
+          } else {
+            const chip = tabChip(tab.tabId);
+            const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
+            if (closer) { try { closer.click(); closed += 1; } catch {} }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        }
+        return { ok: true, closed, remaining: browserTabs().length };
+      }
+      if (op === 'tab-switch') {
+        const tabId = String(args.tabId || '');
+        const tab = browserTabs().find((item) => item.tabId === tabId);
+        if (!tab) throw new Error('找不到标签：' + tabId);
+        const activated = await activateTab(tabId);
+        const view = await ensureVisibleWebview();
+        return { ok: activated, tabId, title: tab.title || null, src: view ? view.getAttribute('src') : null };
+      }
+      if (op === 'tab-close') {
+        const tabId = String(args.tabId || '');
+        const tab = browserTabs().find((item) => item.tabId === tabId);
+        if (!tab) return { ok: false, error: '找不到标签：' + tabId };
+        const right = sidebarRight();
+        if (right && tab.sessionId && typeof right.closeIn === 'function') {
+          try { right.closeIn(tab.sessionId, tabId); } catch {}
+        } else {
+          const chip = tabChip(tabId);
+          const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
+          if (closer) { try { closer.click(); } catch {} }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return { ok: true, tabId, remaining: browserTabs().length };
+      }
+      if (op === 'tab-new') {
+        const url = String(args.url || '');
+        const right = sidebarRight();
+        if (!right || typeof right.openTab !== 'function') throw new Error('面板不支持 openTab');
+        right.openTab('browser', { params: { url } });
+        const view = await waitForWebview(15000);
+        return { ok: Boolean(view), url, src: view ? view.getAttribute('src') : null };
+      }
+      if (op === 'tabs') {
+        const close = Boolean(args && args.close);
+        const views = [...document.querySelectorAll('webview')];
+        const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
+        const right = sidebarRight();
+        const describe = () => browserTabs().map((tab) => {
+          const chip = tabChip(tab.tabId);
+          return { tabId: tab.tabId, title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) : '' };
+        });
+        let closed = 0;
+        if (close && right && typeof right.closeIn === 'function') {
+          for (const tab of browserTabs()) {
+            if (keep.has(tab.tabId)) continue;
+            if (tab.sessionId) {
+              try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
+              await new Promise((resolve) => setTimeout(resolve, 60));
+            }
+          }
+        }
+        if (close) {
+          // Fallback for tabs whose closeIn call does not take effect: hit their chip X.
+          for (const tab of browserTabs()) {
+            if (keep.has(tab.tabId)) continue;
+            const chip = tabChip(tab.tabId);
+            const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
+            if (closer) { try { closer.click(); closed += 1; } catch {} }
+            await new Promise((resolve) => setTimeout(resolve, 60));
+          }
+        }
+        return { tabs: describe(), keep: [...keep], closed, remaining: browserTabs().length };
+      }
+      if (op === 'sweep') {
+        // Close empty browser tabs that earlier bootstraps left behind; keep the tab that
+        // currently owns a guest page.
+        const right = sidebarRight();
+        const views = [...document.querySelectorAll('webview')];
+        const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
+        let closed = 0;
+        for (const tab of browserTabs()) {
+          if (keep.has(tab.tabId)) continue;
+          const chip = tabChip(tab.tabId);
+          const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
+          if (label !== '浏览器' && label !== 'Browser') continue;
+          if (right && tab.sessionId && typeof right.closeIn === 'function') {
+            try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
+          } else if (chip) {
+            const closer = chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]');
+            if (closer) { try { closer.click(); closed += 1; } catch {} }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        }
+        return { ok: true, closed, remaining: browserTabs().length };
+      }
+      if (op === 'focus') {
+        // Make the panel show the tab whose guest matches the given URL (CDP drives the
+        // page directly, so the visible tab has to be aligned explicitly).
+        const wanted = String((args && args.url) || '');
+        const normalize = (value) => String(value || '').split('#')[0].replace(/\/+$/, '').toLowerCase();
+        const target = normalize(wanted);
+        const views = [...document.querySelectorAll('webview')];
+        const view = views.find((element) => {
+          let url = '';
+          try { url = element.getURL ? String(element.getURL() || '') : ''; } catch {}
+          return target && normalize(url) === target;
+        }) || views.find((element) => {
+          let url = '';
+          try { url = element.getURL ? String(element.getURL() || '') : ''; } catch {}
+          return target && normalize(url).includes(target.split('/')[2] || '');
+        });
+        if (!view) return { ok: false, hint: '没有匹配的标签页', url: wanted };
+        const tabId = tabIdOf(view);
+        expandRightbar();
+        if (tabId) await activateTab(tabId);
+        return { ok: true, tabId, url: typeof view.getURL === 'function' ? view.getURL() : '' };
+      }
+      if (op === 'close') {
+        const tabId = tabIdOf(view);
+        const right = sidebarRight();
+        const entry = browserTabs().find((tab) => tab.tabId === tabId);
+        if (right && entry && entry.sessionId && typeof right.closeIn === 'function') {
+          right.closeIn(entry.sessionId, entry.tabId);
+          return { ok: true, tabId };
+        }
+        const chip = tabChip(tabId);
+        const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
+        if (!closer) throw new Error('没找到关闭按钮，请手动关掉“浏览器”标签页');
+        closer.click();
+        return { ok: true, tabId };
+      }
+      if (op === 'probe') {
+        return {
+          hasWebview: true,
+          capabilities: capabilities(view),
+          // The shipped shell gives each workspace one non-persistent session partition;
+          // reading it here is how the agent can tell whether this tab shares cookies.
+          partition: (view.getAttribute && view.getAttribute('partition')) || null,
+          frameName: (view.getAttribute && view.getAttribute('name')) || null,
+        };
+      }
+      throw new Error('未知命令: ' + op);
+    }
+
+    async function handleCommand(message) {
+      // Hot reload can leave an older copy of this module running; only the newest
+      // instance may answer Host commands, or replies race each other.
+      if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
+      const id = message.id;
+      const op = message.op;
+      const args = message.args || {};
+      try {
+        const value = await runCommand(op, args);
+        await post(RESULT_URL, { id, ok: true, value, v: VERSION });
+      } catch (error) {
+        await post(RESULT_URL, { id, ok: false, error: String(error && error.message ? error.message : error), v: VERSION });
+      }
+    }
+
+    /* --------------------------------------------------------------- transport */
+
+    let pollStarted = false;
+    let pollStopped = false;
+
+    // HTTP long-poll for commands. A plugin reload used to leave EventSource stuck in
+    // CONNECTING, so plain POSTs (the same channel the heartbeats already use) are the
+    // reliable way to reach the Host.
+    async function pollLoop() {
+      if (pollStarted) return;
+      pollStarted = true;
+      while (!pollStopped) {
+        if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
+        try {
+          const response = await fetch(apiBase() + PULL_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ v: VERSION }),
+            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(25000) : undefined,
+          });
+          if (!response.ok) throw new Error('pull ' + response.status);
+          const data = await response.json().catch(() => null);
+          const commands = data && Array.isArray(data.commands) ? data.commands : [];
+          for (const command of commands) await handleCommand(command);
+          if (data && data.stale) await new Promise((resolve) => setTimeout(resolve, 400));
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      }
+    }
+
+    async function bootstrap() {
+      for (let index = 0; index < ORIGINS.length; index += 1) {
+        try {
+          const response = await fetch(apiBase() + HELLO_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ version: VERSION, href: location.href, origin: ORIGINS[index] || 'relative', driver: 'webview' }),
+          });
+          if (response.ok) { originIndex = index; break; }
+        } catch {}
+      }
+      pollLoop();
+    }
+
+    function diagnose() {
+      // Compact on purpose: this rides along with browser_state/browser_probe results.
+      const out = { version: VERSION, generation: bridgeGeneration };
+      try {
+        const views = [...document.querySelectorAll('webview')];
+        out.webviews = views.length;
+        out.rects = views.map((el) => {
+          const rect = el.getBoundingClientRect();
+          return [Math.round(rect.width), Math.round(rect.height)];
+        });
+      } catch {}
+      try {
+        out.platform = {
+          desktop: typeof globalThis.dshDesktop,
+          protocol: globalThis.dshDesktop && globalThis.dshDesktop.protocolVersion,
+          browser: Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser),
+        };
+      } catch {}
+      try {
+        out.sidebarRight = Boolean(sidebarRight());
+        out.layout = Boolean(layout());
+        out.browserTabs = browserTabs().length;
+      } catch {}
+      try {
+        // The shell assigns one non-persistent session partition per workspace; surface it so
+        // cookie questions ("do these two tabs share a jar?") are answerable from a tool call.
+        const view = document.querySelector('webview');
+        if (view) {
+          out.partition = view.getAttribute('partition') || null;
+          out.frameName = view.getAttribute('name') || null;
+        }
+      } catch {}
+      return out;
+    }
+
+    async function heartbeat() {
+      if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
+      // Self-heal: the heartbeat proves the Host is up, so keep the command poll attached.
+      if (!pollStarted && !pollStopped) pollLoop();
+      const view = findWebview();
+      const probe = { at: Date.now(), hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
+      if (view) probe.capabilities = capabilities(view);
+      await post(PROBE_URL, probe);
+      if (!view) return;
+      const state = await stateOf(view);
+      await post(PAGE_STATE_URL, { ...state, v: VERSION });
+    }
+
+    return {
+      inject: ['sidebarRight', 'layout'],
+      apply(ctx) {
+        pluginCtx = ctx;
+        if (typeof window !== 'undefined') window.__KATT_WEBVIEW_BRIDGE__ = true;
+        bootstrap();
+        heartbeat();
+        if (pageStateTimer) clearInterval(pageStateTimer);
+        pageStateTimer = setInterval(heartbeat, 2500);
+        ctx.effect(() => () => {
+          clearInterval(pageStateTimer);
+          pollStopped = true;
+        });
+      },
+    };
+  },
+});

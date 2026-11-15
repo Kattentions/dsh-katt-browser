@@ -1,0 +1,9 @@
+node_modules/
+*.key
+*.bak
+*.bak_*
+.env
+.DS_Store
+Thumbs.db
+profiles/
+*.log

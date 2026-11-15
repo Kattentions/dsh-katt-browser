@@ -1,0 +1,6 @@
+- insert:
+    - id: katt-browser
+      name: 'dsh-katt-browser'
+      config:
+        driver: webview
+        cdpPort: 9222
