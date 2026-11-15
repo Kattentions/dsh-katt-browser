@@ -11,6 +11,12 @@ DeepSeek Harness（DSH）桌面版插件：把应用内置的侧栏浏览器变�
 - DSH 桌面版（Electron，Windows / macOS / Linux），带侧栏浏览器。
 - 启动应用时需要带 DevTools 端口，例如 `--remote-debugging-port=9222`。CDP 不可用时插件会退回 DOM 桥，但 CDP 是主通道，推荐开启。
 
+## 架构
+
+![架构](docs/images/architecture.svg)
+
+工具层统一进混合驱动：优先通过 DevTools 协议（WebSocket 连 `--remote-debugging-port`）附到侧栏 webview 的 guest 上，CDP 不可用时退回页面内桥。账号快照在驱动旁边，落盘加密。
+
 ## 安装
 
 ```sh
@@ -64,6 +70,37 @@ dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
 - `browser_serve` — 本地 HTTP 静态服务（侧栏 webview 打不开 `file://`）
 - `browser_download` — 壳禁用了原生下载，这里用页面内 fetch 取字节再落盘
 - `browser_history`、`browser_probe`、`browser_page_diag` — 诊断工具
+
+## 效果图
+
+| 用户看到的页面 | agent 实际读到的东西 |
+|---|---|
+| ![侧栏里的页面](docs/images/dom-page.png) | `browser_snapshot` 返回角色、名字和 `eN` 引用；`browser_text` 返回可读正文 |
+
+canvas 游戏的状态不进 DOM：`browser_instrument` 直接读 worker 消息（分数、棋盘、步数），不用截图。
+
+![通过 worker 消息读 canvas 游戏状态](docs/images/canvas-game.png)
+
+## 使用示范
+
+```text
+# 1. 按结构读页面，按 ref 操作
+browser_open   url=https://quotes.toscrape.com/
+browser_snapshot detail=compact
+  [e1] link "Quotes to Scrape"   [e2] link "Login"   [e3] link "(about)" ...
+
+# 2. 点一个 ref（真实鼠标事件），再重新读
+browser_click  ref=43            -> https://quotes.toscrape.com/page/2/
+browser_text   maxChars=400      -> 标题、正文、链接
+
+# 3. 页面白屏/报错时排查
+browser_console  level=error     -> 未捕获异常、console.error
+browser_network  filter=api      -> GET /api/... 200 application/json 120ms
+
+# 4. 保存和切换账号
+browser_cookies save name=work   -> 17 个 Cookie、10 个 localStorage、1 个 IndexedDB，加密落盘
+browser_cookies load name=work   -> storageRestored: true
+```
 
 ## 已知限制
 

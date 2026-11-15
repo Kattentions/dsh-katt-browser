@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif"
+     aria-label="dsh-katt-browser architecture">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .box { fill: #11161d; stroke: #2b3440; stroke-width: 1.5; rx: 10; }
+      .title { fill: #e6edf3; font-size: 15px; font-weight: 600; }
+      .body { fill: #9aa7b4; font-size: 12px; }
+      .tag { fill: #7c8794; font-size: 11px; }
+      .arrow { stroke: #6b7280; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .label { fill: #8b98a5; font-size: 11px; }
+    </style>
+  </defs>
+
+  <text x="24" y="30" class="title">dsh-katt-browser — drivers and reading paths</text>
+
+  <!-- tools -->
+  <rect class="box" x="24" y="58" width="210" height="150"/>
+  <text x="42" y="84" class="title">Agent tools</text>
+  <text x="42" y="108" class="body">browser_snapshot / text / table</text>
+  <text x="42" y="128" class="body">browser_console / network</text>
+  <text x="42" y="148" class="body">browser_click / type / tabs</text>
+  <text x="42" y="168" class="body">browser_cookies / history</text>
+  <text x="42" y="190" class="tag">27 tools</text>
+
+  <!-- hybrid -->
+  <rect class="box" x="290" y="58" width="180" height="150"/>
+  <text x="308" y="84" class="title">Hybrid driver</text>
+  <text x="308" y="108" class="body">CDP first</text>
+  <text x="308" y="128" class="body">bridge fallback</text>
+  <text x="308" y="148" class="body">re-attach / sweep</text>
+  <text x="308" y="190" class="tag">lib/hybrid.js</text>
+
+  <!-- cdp -->
+  <rect class="box" x="530" y="40" width="360" height="86"/>
+  <text x="548" y="66" class="title">CDP driver</text>
+  <text x="548" y="88" class="body">WebSocket → --remote-debugging-port → webview guest</text>
+  <text x="548" y="108" class="body">AX tree + refs · real input · screenshots · network · storage</text>
+
+  <!-- bridge -->
+  <rect class="box" x="530" y="150" width="360" height="86"/>
+  <text x="548" y="176" class="title">In-page bridge</text>
+  <text x="548" y="198" class="body">client.js inside DSH renderer, long-poll commands</text>
+  <text x="548" y="218" class="body">tab open/switch/close, DOM snapshot fallback</text>
+
+  <!-- page -->
+  <rect class="box" x="290" y="278" width="600" height="64"/>
+  <text x="308" y="304" class="title">Sidebar webview (shared surface)</text>
+  <text x="308" y="326" class="body">same page, same cookies, same scroll position for user and agent</text>
+
+  <!-- profiles -->
+  <rect class="box" x="24" y="278" width="232" height="64"/>
+  <text x="42" y="304" class="title">Snapshots</text>
+  <text x="42" y="326" class="body">cookies + storage + IDB, encrypted</text>
+
+  <path class="arrow" d="M234,133 L284,133"/>
+  <path class="arrow" d="M470,100 L524,84"/>
+  <path class="arrow" d="M470,160 L524,190"/>
+  <path class="arrow" d="M710,236 L710,272"/>
+  <path class="arrow" d="M290,310 L262,310" transform="translate(0,0) rotate(180 276 310)"/>
+  <path class="arrow" d="M128,232 L128,272"/>
+  <text x="238" y="124" class="label">tools</text>
+  <text x="486" y="86" class="label">drive</text>
+  <text x="486" y="190" class="label">fallback</text>
+  <text x="720" y="260" class="label">load</text>
+</svg>

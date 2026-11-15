@@ -11,6 +11,14 @@ A DeepSeek Harness (DSH) plugin that turns the desktop app's built-in sidebar br
 - DSH desktop app (Electron, Windows/macOS/Linux) with the sidebar browser.
 - The app must be launched with a DevTools port, e.g. `--remote-debugging-port=9222`. The plugin can also fall back to a DOM bridge when CDP is unavailable, but CDP is the primary and recommended path.
 
+## Architecture
+
+![Architecture](docs/images/architecture.svg)
+
+Tools talk to a hybrid driver: it attaches to the sidebar webview guest over the DevTools
+protocol (WebSocket to `--remote-debugging-port`) and falls back to an in-page bridge when CDP
+is unavailable. Account snapshots live beside the driver and are encrypted at rest.
+
 ## Install
 
 ```sh
@@ -65,6 +73,17 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
 - `browser_download` — native downloads are disabled by the shell, so files are fetched in-page and written to disk
 - `browser_history`, `browser_probe`, `browser_page_diag` — diagnostics
 
+## Screenshots
+
+| The page the user sees | What the agent reads instead |
+|---|---|
+| ![Page in sidebar](docs/images/dom-page.png) | `browser_snapshot` returns roles, names and `eN` refs; `browser_text` returns readable text |
+
+A canvas game whose state never touches the DOM: `browser_instrument` reads the worker messages
+(score, board, move count) instead of taking a screenshot.
+
+![Canvas game state via worker messages](docs/images/canvas-game.png)
+
 ## Known limits
 
 - `file://` cannot be opened; use `browser_serve`.
@@ -75,6 +94,27 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
 ## License
 
 MIT
+
+## Usage walkthrough
+
+```text
+# 1. read the page as structure, interact by ref
+browser_open   url=https://quotes.toscrape.com/
+browser_snapshot detail=compact
+  [e1] link "Quotes to Scrape"   [e2] link "Login"   [e3] link "(about)" ...
+
+# 2. click a ref (real mouse event), then re-read
+browser_click  ref=43            -> https://quotes.toscrape.com/page/2/
+browser_text   maxChars=400      -> title, body, links
+
+# 3. debug a page that fails to render
+browser_console  level=error     -> uncaught exceptions, console.error
+browser_network  filter=api      -> GET /api/... 200 application/json 120ms
+
+# 4. keep and switch accounts
+browser_cookies save name=work   -> 17 cookies, 10 local keys, 1 IndexedDB, encrypted
+browser_cookies load name=work   -> storageRestored: true
+```
 
 ## Discover / plugin market
 

@@ -39,7 +39,8 @@
                   "README.md",
                   "CHANGELOG.md",
                   "LICENSE",
-                  "README.zh.md"
+                  "README.zh.md",
+                  "docs/**"
               ],
     "dsh":  {
                 "bundle":  {
