@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.2';
+    const VERSION = '0.9.3';
 
     const ORIGINS = [''];
     try {
@@ -37,6 +37,9 @@ window.__ModuleLoader__.load({
 
     let pluginCtx = null;
     let pageStateTimer = null;
+    // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
+    // viewing, and a tool call from another workspace must not open it in front of them.
+    let revealPanel = false;
 
     const sidebarRight = () => {
       try {
@@ -53,6 +56,7 @@ window.__ModuleLoader__.load({
     };
 
     function expandRightbar() {
+      if (!revealPanel) return;
       // Expanding the right column matters: a collapsed sidebar can hold the tab
       // without mounting its pane, and the native <webview> only exists once mounted.
       const layoutService = layout();
@@ -125,6 +129,9 @@ window.__ModuleLoader__.load({
       if (!view) return null;
       if (measure(view) > 4) { installSameTabPolicy(view); return view; }
       const tabId = tabIdOf(view);
+      // When revealPanel is off, keep the panel exactly as the user left it: the guest can
+      // still be driven while hidden, it just is not the focused surface.
+      if (!revealPanel) { installSameTabPolicy(view); return view; }
       for (let attempt = 0; attempt < 4; attempt += 1) {
         const layoutService = layout();
         if (layoutService && typeof layoutService.openRightbar === 'function') {
@@ -682,6 +689,10 @@ window.__ModuleLoader__.load({
         const view = await waitForWebview(15000);
         return { ok: Boolean(view), url, src: view ? view.getAttribute('src') : null };
       }
+      if (op === 'reveal') {
+        revealPanel = Boolean(args && args.allow);
+        return { ok: true, revealPanel };
+      }
       if (op === 'tabs') {
         const close = Boolean(args && args.close);
         const views = [...document.querySelectorAll('webview')];
@@ -754,8 +765,8 @@ window.__ModuleLoader__.load({
         if (!view) return { ok: false, hint: '没有匹配的标签页', url: wanted };
         const tabId = tabIdOf(view);
         expandRightbar();
-        if (tabId) await activateTab(tabId);
-        return { ok: true, tabId, url: typeof view.getURL === 'function' ? view.getURL() : '' };
+        if (tabId && revealPanel) await activateTab(tabId);
+        return { ok: true, tabId, activated: revealPanel, url: typeof view.getURL === 'function' ? view.getURL() : '' };
       }
       if (op === 'close') {
         const tabId = tabIdOf(view);

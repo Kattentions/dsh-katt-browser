@@ -41,6 +41,7 @@ dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
     idbLimit: 50           # IndexedDB 快照每页拉取条数（单库上限 500）
     downloadDir: ''        # browser_download 默认保存目录
     allowedHosts: []       # 非空时只允许访问这些域名及其子域
+    revealPanel: false     # true = 工具操作时允许展开侧栏（默认关闭）
 ```
 
 ## 给 agent 的能力
@@ -101,6 +102,10 @@ browser_network  filter=api      -> GET /api/... 200 application/json 120ms
 browser_cookies save name=work   -> 17 个 Cookie、10 个 localStorage、1 个 IndexedDB，加密落盘
 browser_cookies load name=work   -> storageRestored: true
 ```
+
+### 面板可见性（多工作区）
+
+工具操作不会主动展开或切换右侧栏：右侧栏属于你正在看的那个会话，其他工作区的操作不应该把它拉到前台。面板收起时，读页面（快照/文本/console/网络/Cookie）和导航都照常工作；真实鼠标/键盘输入需要面板展开，会返回 `panelHidden` 提示而不是静默失败。如果你确实想让工具展开面板，把配置里的 `revealPanel` 设成 `true`。
 
 ## 已知限制
 

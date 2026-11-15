@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.9.3
+
+- **修复：工具操作会抢别的会话的右侧栏**。原因是 CDP 对齐逻辑每次操作都调 `focus`，客户端 `focus` 里 `expandRightbar()` + `activateTab()`；桥模式还会 `ensureVisibleWebview` 里 `openRightbar`。现在默认完全不主动展开/切换面板，新增配置 `revealPanel`（默认 `false`）给需要展开的场景。
+- **面板收起时的行为**：读页面（快照/文本/console/网络/Cookie）和导航照常；真实点击/输入无法作用于隐藏的 guest，改为返回 `panelHidden` 提示而不是静默失败。
+- `browser_probe` 增加 `revealPanel` 字段，方便确认当前策略。
+
 ## 0.9.2
 
 - **危险操作确认**：`browser_click` 命中「删除/支付/注销/解绑…」这类按钮时，不传 `confirm=true` 只返回 `needsConfirm` 提示，不会真的点。实测：点「删除这条记录」→ 拦截；`confirm=true` 再点 → 页面状态变为 deleted。

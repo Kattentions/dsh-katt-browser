@@ -43,6 +43,7 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
     idbLimit: 50           # rows per page when snapshotting IndexedDB (500 per DB max)
     downloadDir: ''        # default folder for browser_download
     allowedHosts: []       # non-empty = allow these domains (and subdomains) only
+    revealPanel: false     # true = tool calls may open the sidebar (off by default)
 ```
 
 ## What it gives the agent
@@ -83,6 +84,14 @@ A canvas game whose state never touches the DOM: `browser_instrument` reads the 
 (score, board, move count) instead of taking a screenshot.
 
 ![Canvas game state via worker messages](docs/images/canvas-game.png)
+
+### Panel visibility (multi-workspace)
+
+Tool calls never open or switch the sidebar on their own: the right column belongs to whichever
+session you are looking at, and a call from another workspace must not pull it in front of you.
+Reading (snapshot, text, console, network, cookies) and navigation work with the panel collapsed;
+real mouse/keyboard input needs it open and returns a `panelHidden` hint instead of failing silently.
+Set `revealPanel: true` in the config if you *want* tools to reveal the panel.
 
 ## Known limits
 

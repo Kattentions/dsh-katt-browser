@@ -23,6 +23,7 @@ export const Config = z.object({
   idbLimit: z.natural().default(50).description('每个 IndexedDB 库快照保存的记录条数上限'),
   downloadDir: z.string().description('browser_download 的默认保存目录（默认 用户目录/Downloads/katt-browser）'),
   allowedHosts: z.array(z.string()).description('域名白名单；非空时只允许访问这些域名及其子域'),
+  revealPanel: z.boolean().default(false).description('工具操作时是否主动展开右侧栏（默认 false，避免抢当前会话的面板）'),
 });
 
 const EDGE_CANDIDATES = [
