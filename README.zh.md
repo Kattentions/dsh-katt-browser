@@ -1,0 +1,77 @@
+# dsh-katt-browser
+
+[English](README.md) | 中文
+
+DeepSeek Harness（DSH）桌面版插件：把应用内置的侧栏浏览器变成 agent 可以操控的浏览器。
+
+**结构优先，截图最后。** 页面信息来自无障碍树、DOM、worker 消息和网络层；截图只在兜底或需要看视觉效果时使用。
+
+## 环境要求
+
+- DSH 桌面版（Electron，Windows / macOS / Linux），带侧栏浏览器。
+- 启动应用时需要带 DevTools 端口，例如 `--remote-debugging-port=9222`。CDP 不可用时插件会退回 DOM 桥，但 CDP 是主通道，推荐开启。
+
+## 安装
+
+```sh
+dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
+```
+
+或从本地目录安装：
+
+```sh
+dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
+```
+
+装完重启 DSH。侧栏浏览器就是你（用户）和 agent 共用的一块页面：同一个页面、同一份 Cookie、同一个滚动位置。
+
+## 配置
+
+```yaml
+- id: katt-browser
+  config:
+    driver: webview        # webview（默认）| headless（旧驱动）
+    cdpPort: 9222          # 桌面应用使用的 DevTools 端口
+    idbLimit: 50           # IndexedDB 快照每页拉取条数（单库上限 500）
+    downloadDir: ''        # browser_download 默认保存目录
+    allowedHosts: []       # 非空时只允许访问这些域名及其子域
+```
+
+## 给 agent 的能力
+
+**读取（不靠截图）**
+
+- `browser_snapshot` — 无障碍树 + `eN` 引用；`detail=compact` 只给交互元素
+- `browser_text` — 可读正文（标题、正文、链接）
+- `browser_table` — 表格转表头 + 行数据
+- `browser_evaluate` — 在页面里执行 JS
+- `browser_console` — console 日志、未捕获异常
+- `browser_network` — 请求历史（方法/URL/状态/MIME/耗时），可按 URL 过滤
+- `browser_instrument` — worker 消息、fetch/XHR/WebSocket 流量、存储写入（canvas 游戏的状态通常在这里）
+
+**交互**
+
+- `browser_open` / `back` / `forward` / `reload`，支持 `waitFor` / `waitMs` 等 SPA 水合
+- `browser_click`（ref 或坐标）、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_hover`、`browser_upload`
+- `browser_tabs` — 列表 / 切换 / 新建 / 关闭
+- 删除、支付、退订这类危险按钮需要 `confirm=true` 才会执行
+
+**账号与状态**
+
+- `browser_cookies` — `list / save / load / clear / clear-site / clear-cache / profiles`
+- 快照覆盖 Cookie + localStorage/sessionStorage + IndexedDB + Cache Storage，落盘加密（AES-256-GCM，密钥在 `~/.dsh/katt-browser/profile.key`）
+- 默认是同一 workspace 分区内共享登录态；切换账号就是 `load` 另一份快照
+- `browser_serve` — 本地 HTTP 静态服务（侧栏 webview 打不开 `file://`）
+- `browser_download` — 壳禁用了原生下载，这里用页面内 fetch 取字节再落盘
+- `browser_history`、`browser_probe`、`browser_page_diag` — 诊断工具
+
+## 已知限制
+
+- `file://` 打不开，用 `browser_serve`。
+- 原生下载被壳禁用，用 `browser_download`。
+- Service Worker 注册本身无法从快照恢复（Cache Storage 内容可以）。
+- 需要人操作的站点（登录墙、验证码、限流）会返回 `barriers` 提示，由用户在侧栏完成那一步。
+
+## 许可
+
+MIT

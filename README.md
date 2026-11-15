@@ -1,5 +1,7 @@
 # dsh-katt-browser
 
+English | [中文](README.zh.md)
+
 A DeepSeek Harness (DSH) plugin that turns the desktop app's built-in sidebar browser into an agent-controllable browser.
 
 **Structure first, screenshots last.** Page state is read from the accessibility tree, DOM, worker messages and the network layer; screenshots exist only as a fallback.
