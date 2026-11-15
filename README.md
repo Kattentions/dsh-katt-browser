@@ -73,3 +73,17 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
 ## License
 
 MIT
+
+## Discover / plugin market
+
+DSH has no central marketplace; a market is a JSON index you add under
+**Plugins → Discover → Index sources**. This repo publishes one (format 1):
+
+- `https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/index.json` (CDN, no redirects)
+- `https://raw.githubusercontent.com/Kattentions/dsh-katt-browser/main/index.json` (fallback)
+
+See [MARKET.md](MARKET.md). Direct install works without any index:
+
+```sh
+dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
+```

@@ -1,0 +1,60 @@
+{
+    "format":  1,
+    "title":  {
+                  "en":  "Katt DSH plugins",
+                  "zh":  "Katt 的 DSH 插件"
+              },
+    "description":  {
+                        "en":  "Bundles published by Kattentions for DeepSeek Harness.",
+                        "zh":  "Kattentions 发布的 DeepSeek Harness 组合包。"
+                    },
+    "metadata":  {
+                     "categories":  {
+                                        "tools":  {
+                                                      "title":  {
+                                                                    "en":  "Tools",
+                                                                    "zh":  "工具"
+                                                                }
+                                                  }
+                                    }
+                 },
+    "plugins":  [
+                    {
+                        "name":  "dsh-katt-browser",
+                        "title":  {
+                                      "en":  "Katt Browser",
+                                      "zh":  "Katt 浏览器"
+                                  },
+                        "description":  {
+                                            "en":  "Sidebar browser for DeepSeek Harness: structure-first page reading (AX tree, DOM, worker, network), CDP or bridge driver, encrypted multi-account cookie snapshots.",
+                                            "zh":  "DeepSeek Harness 侧栏浏览器：结构优先读页面（AX 树/DOM/worker/网络），CDP 或 JS 桥双驱动，加密的多账号 Cookie 快照。"
+                                        },
+                        "icon":  "icon.svg",
+                        "author":  "Kattentions",
+                        "homepage":  "https://github.com/Kattentions/dsh-katt-browser",
+                        "repository":  {
+                                           "url":  "https://github.com/Kattentions/dsh-katt-browser"
+                                       },
+                        "keywords":  [
+                                         "browser",
+                                         "cdp",
+                                         "chrome-devtools-protocol",
+                                         "accessibility-tree",
+                                         "cookies",
+                                         "agent"
+                                     ],
+                        "category":  "tools",
+                        "versions":  [
+                                         {
+                                             "version":  "0.9.2",
+                                             "publishTimestamp":  1794757526,
+                                             "source":  {
+                                                            "url":  "https://github.com/Kattentions/dsh-katt-browser.git",
+                                                            "commit":  "6e5e82002d54280c8aaf45a3f59640e2c3d51e95",
+                                                            "type":  "git"
+                                                        }
+                                         }
+                                     ]
+                    }
+                ]
+}
