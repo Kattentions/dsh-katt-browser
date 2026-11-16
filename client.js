@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.4';
+    const VERSION = '0.9.5';
 
     const ORIGINS = [''];
     try {

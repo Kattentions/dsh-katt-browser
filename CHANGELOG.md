@@ -1,5 +1,9 @@
 # 变更记录
 
+## 0.9.5
+
+- **修复内置浏览器复制失效**：DSH 给侧栏浏览器 session 把所有权限请求都拒绝了，`navigator.clipboard.writeText` 一律 `NotAllowedError`，GitHub 这类按钮复制到不了系统剪贴板。注入脚本把异步 Clipboard API 改走 `execCommand('copy')`，按钮复制恢复正常，面板收起时也有效。
+
 ## 0.9.4
 
 - **卡顿优化**：去掉常驻的焦点模拟（此前让隐藏的 webview 不被 Chromium 节流，面板一直按 144Hz 出帧）；空闲 45 秒自动断开 CDP，下次操作自动重连（`cdpIdleDetachMs`，0 = 保持连接）。实测 UI 渲染进程 115% → 106.9%，GPU 50.6% → 43.9%。
