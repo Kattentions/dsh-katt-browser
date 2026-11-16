@@ -68,6 +68,7 @@ async function openLocalFile(target, browser) {
     if (served.error) return served;
     const url = served.url;
     await browser.navigate(url);
+    try { await browser.reveal?.(url); } catch { /* reveal is best effort */ }
     return { ok: true, url, root: filePath, kind: 'directory' };
   }
   if (!stat.isFile()) return { error: '不是普通文件：' + filePath };
@@ -77,6 +78,7 @@ async function openLocalFile(target, browser) {
   const base = served.url.replace(/\/+$/, '');
   const url = base + '/' + encodeURIComponent(path.basename(filePath));
   await browser.navigate(url);
+  try { await browser.reveal?.(url); } catch { /* reveal is best effort */ }
   return { ok: true, url, root: directory, file: filePath, kind: 'file' };
 }
 
