@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.14';
+    const VERSION = '0.9.15';
 
     const React = require('react');
     const h = React.createElement;
@@ -1141,6 +1141,84 @@ window.__ModuleLoader__.load({
        document preview (a sandboxed frame with no CDP). Route those clicks to this
        plugin's browser instead, so the page the user opens is the one the agent can
        read and click. Buttons inside a row keep their own behavior. */
+    /* ---- global file-open interception ----
+       Every "open this file" entry in the UI (chat file links, @ references, the
+       files navigator, deliverables, skills) funnels into sidebarRight.openResource
+       with a dsh-resource://file/... address. Wrap that method: web-page files are
+       served and opened in this plugin's browser, everything else keeps the shipped
+       document preview. */
+    const FILE_ADDRESS_PREFIX = 'dsh-resource://file/';
+
+    function isAbsoluteFsPath(value) {
+      return /^[a-zA-Z]:[\\/]/.test(value) || /^[/\\]{2}/.test(value);
+    }
+
+    function resolveFileAddress(address) {
+      try {
+        if (typeof address !== 'string' || !address.startsWith(FILE_ADDRESS_PREFIX)) return '';
+        const trimmed = address.slice(FILE_ADDRESS_PREFIX.length).split(/[?#]/)[0];
+        const parts = trimmed.split('/');
+        const scope = parts.shift();
+        if (scope === 'absolute') {
+          const decoded = parts.map((segment) => decodeURIComponent(segment));
+          const path = decoded.join('/');
+          return isAbsoluteFsPath(path) ? path : '/' + path;
+        }
+        if (scope !== 'session') return '';
+        const sessionId = decodeURIComponent(parts.shift() || '');
+        if (sessionId === '' || parts.length === 0) return '';
+        const relative = parts.map((segment) => decodeURIComponent(segment)).join('/');
+        if (isAbsoluteFsPath(relative)) return relative;
+        let cwd = '';
+        try { cwd = String(pluginCtx && pluginCtx.sessions.list.getSnapshot().byId[sessionId]?.cwd || ''); } catch (error) { cwd = ''; }
+        if (cwd === '') return '';
+        const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '');
+        return root + '/' + relative.replace(/^\/+/, '');
+      } catch (error) { return ''; }
+    }
+
+    function isHtmlPath(filePath) {
+      return /\.html?$/i.test(String(filePath || ''));
+    }
+
+    function installFileOpenServiceInterceptor() {
+      try {
+        if (typeof window === 'undefined' || window.__kattOpenResourcePatched) return;
+        const service = pluginCtx && pluginCtx.sidebarRight;
+        if (!service || typeof service.openResource !== 'function') return;
+        const originals = {
+          openResource: service.openResource,
+          openResourceIn: typeof service.openResourceIn === 'function' ? service.openResourceIn : null,
+        };
+        const intercept = (address) => {
+          const filePath = resolveFileAddress(address);
+          if (filePath === '' || !isHtmlPath(filePath)) return false;
+          openFileInBrowser(filePath).catch((failure) => {
+            try { console.warn('[katt-browser] open in browser failed:', failure); } catch (ignored) { /* no console */ }
+          });
+          return true;
+        };
+        service.openResource = function (address, options) {
+          try { if (intercept(address)) return; } catch (error) { /* fall through */ }
+          return originals.openResource.call(this, address, options);
+        };
+        if (originals.openResourceIn !== null) {
+          service.openResourceIn = function (sessionId, address, options) {
+            try { if (intercept(address)) return; } catch (error) { /* fall through */ }
+            return originals.openResourceIn.call(this, sessionId, address, options);
+          };
+        }
+        window.__kattOpenResourcePatched = true;
+        window.__kattOpenResourceRestore = () => {
+          try {
+            service.openResource = originals.openResource;
+            if (originals.openResourceIn !== null) service.openResourceIn = originals.openResourceIn;
+          } catch (error) { /* already gone */ }
+          window.__kattOpenResourcePatched = false;
+        };
+      } catch (error) { /* service not available */ }
+    }
+
     function installFileOpenInterceptor() {
       try {
         if (typeof window === 'undefined' || window.__kattFileOpenInterceptor) return;
@@ -1193,7 +1271,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['sidebarRight', 'layout', 'slots'],
+      inject: ['sidebarRight', 'layout', 'slots', 'sessions'],
       apply(ctx) {
         pluginCtx = ctx;
         if (typeof window !== 'undefined') window.__KATT_WEBVIEW_BRIDGE__ = true;
@@ -1201,6 +1279,7 @@ window.__ModuleLoader__.load({
         heartbeat();
         installBrowserChrome();
         installFileOpenInterceptor();
+        installFileOpenServiceInterceptor();
         try {
           ctx.effect(() => ctx.slots.inject('sidebar.right.tab.document.actions', () => ctx.slots.register({
             name: 'sidebar.right.tab.document.actions',
@@ -1216,6 +1295,7 @@ window.__ModuleLoader__.load({
           pollStopped = true;
           if (typeof window !== 'undefined' && window.__kattBrowserChromeStop) window.__kattBrowserChromeStop();
           if (typeof window !== 'undefined' && window.__kattFileOpenInterceptorStop) window.__kattFileOpenInterceptorStop();
+          if (typeof window !== 'undefined' && window.__kattOpenResourceRestore) window.__kattOpenResourceRestore();
         });
       },
     };
