@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.11
+
+- **工作区 html 可被 agent 操作**：文档预览标题栏新增「Katt 浏览器」按钮，一键把文件名映射为 http://127.0.0.1 地址并在侧栏浏览器打开（原生预览是沙箱 iframe，没有 CDP 后端）。之后 snapshot/click/evaluate 都能用。
+- 新增工具 `browser_open_file`（路径 → 自动起服务并打开），以及宿主路由 `/api/katt-browser/open-file`。
+
 ## 0.9.10
 
 - **零配置**：右侧栏收起甚至没打开过浏览器标签页时，第一次 browser_open / browser_snapshot 会自动展开右栏；点击、输入、按键前也会先刷新面板状态，收起时自动展开一次（10 秒内不重复）。新增 `autoReveal` 配置（默认开）。

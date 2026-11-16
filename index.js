@@ -8,12 +8,12 @@
  * cookies and the same scroll position.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { WebviewSession } from './lib/webview.js';
 import { HybridSession } from './lib/hybrid.js';
-import { listServe, startServe, stopAllServe, stopServe } from './lib/serve.js';
+import { listServe, startServe, startServeAuto, stopAllServe, stopServe } from './lib/serve.js';
 import z from '@deepseek-ai/schemastery';
 
 /** Plugin configuration (declared so the DSH settings layer can validate it). */
@@ -49,6 +49,36 @@ const ROUTE_CONFIG = '/api/katt-browser/config';
 const ROUTE_RESULT = '/api/katt-browser/result';
 const ROUTE_PAGE_STATE = '/api/katt-browser/page-state';
 const ROUTE_PROBE = '/api/katt-browser/probe';
+const ROUTE_OPEN_FILE = '/api/katt-browser/open-file';
+
+/**
+ * Open a workspace file in the sidebar browser. The webview refuses file://
+ * (ERR_FAILED), so the file's directory is served on loopback first and the
+ * browser navigates to http://127.0.0.1:<port>/<name>.
+ * @param {string} target - absolute path of a file or directory.
+ * @param {object} browser - hybrid session.
+ * @returns {Promise<object>} { ok, url, root, file } or { error }.
+ */
+async function openLocalFile(target, browser) {
+  const filePath = path.resolve(String(target || ''));
+  let stat = null;
+  try { stat = statSync(filePath); } catch { return { error: '路径不存在：' + filePath }; }
+  if (stat.isDirectory()) {
+    const served = await startServeAuto(filePath);
+    if (served.error) return served;
+    const url = served.url;
+    await browser.navigate(url);
+    return { ok: true, url, root: filePath, kind: 'directory' };
+  }
+  if (!stat.isFile()) return { error: '不是普通文件：' + filePath };
+  const directory = path.dirname(filePath);
+  const served = await startServeAuto(directory);
+  if (served.error) return served;
+  const base = served.url.replace(/\/+$/, '');
+  const url = base + '/' + encodeURIComponent(path.basename(filePath));
+  await browser.navigate(url);
+  return { ok: true, url, root: directory, file: filePath, kind: 'file' };
+}
 
 const ENUM_FN = `
 function kattList() {
@@ -1065,6 +1095,15 @@ function buildTools(browser) {
       },
     },
     {
+      name: 'browser_open_file',
+      description: '打开本机/工作区里的文件：自动为该文件所在目录起 http://127.0.0.1 静态服务，并让侧栏浏览器打开它。看本地 html、或者让 agent 点本地页面的控件时，比 browser_serve + browser_open 少两步。',
+      parameters: schema({
+        path: { type: 'string', description: '文件或目录的绝对路径（相对路径按 host 进程的当前目录解析）' },
+      }, ['path']),
+      output,
+      execute: async (args) => openLocalFile(args && args.path, browser),
+    },
+    {
       name: 'browser_download',
       description: '下载文件。侧栏浏览器本身禁用了下载，这里在页面里用 fetch（带登录态）取字节，再由宿主写到磁盘，默认存到 用户目录/Downloads/katt-browser。',
       parameters: schema({
@@ -1419,6 +1458,16 @@ export function apply(ctx, config = {}) {
         const body = await readJsonBody(req);
         if (bridge && bridge.accepts(body.v)) bridge.setProbe(body);
         sendJson(res, 200, { ok: true }, CORS_HEADERS);
+      } catch (error) {
+        sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
+      }
+    },
+    [ROUTE_OPEN_FILE]: async (req, res) => {
+      if (preflight(req, res)) return;
+      try {
+        const body = await readJsonBody(req);
+        const result = await openLocalFile(body && body.path, browser);
+        sendJson(res, result && result.error ? 400 : 200, result, CORS_HEADERS);
       } catch (error) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
       }
