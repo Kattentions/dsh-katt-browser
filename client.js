@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.5';
+    const VERSION = '0.9.6';
 
     const ORIGINS = [''];
     try {
@@ -190,6 +190,52 @@ window.__ModuleLoader__.load({
       } catch { return 'failed'; }
     })()`;
 
+    // The sidebar session denies every permission request, so navigator.clipboard.writeText
+    // rejects even though execCommand('copy') reaches the OS clipboard. This copy has to be
+    // installed from the renderer too: CDP may be detached while the user is just browsing.
+    const CLIPBOARD_SHIM = `(() => {
+      try {
+        const clipboard = navigator.clipboard;
+        if (!clipboard || window.__kattClipboard) return 'already';
+        window.__kattClipboard = true;
+        const copyText = (text) => {
+          const area = document.createElement('textarea');
+          area.value = String(text == null ? '' : text);
+          area.setAttribute('readonly', '');
+          area.style.cssText = 'position:fixed;top:-2000px;left:-2000px;opacity:0;pointer-events:none';
+          const active = document.activeElement;
+          (document.body || document.documentElement).appendChild(area);
+          area.focus();
+          area.select();
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch (error) { ok = false; }
+          try { area.remove(); } catch (error) {}
+          try { if (active && typeof active.focus === 'function') active.focus(); } catch (error) {}
+          if (!ok) throw new Error('clipboard write denied');
+        };
+        Object.defineProperty(clipboard, 'writeText', {
+          configurable: true,
+          writable: true,
+          value: (text) => Promise.resolve().then(() => copyText(text)),
+        });
+        if (typeof clipboard.write === 'function') {
+          Object.defineProperty(clipboard, 'write', {
+            configurable: true,
+            writable: true,
+            value: (items) => Promise.resolve().then(async () => {
+              for (const item of Array.from(items || [])) {
+                if (item && item.types && item.types.indexOf('text/plain') !== -1) {
+                  return copyText(await item.getType('text/plain').then((blob) => blob.text()));
+                }
+              }
+              throw new Error('unsupported clipboard item');
+            }),
+          });
+        }
+        return 'installed';
+      } catch { return 'failed'; }
+    })()`;
+
     function installSameTabPolicy(view) {
       try {
         if (view.__kattSameTabHooked) return;
@@ -198,11 +244,13 @@ window.__ModuleLoader__.load({
           try {
             view.addEventListener(eventName, () => {
               try { view.executeJavaScript(SAME_TAB_POLICY, true); } catch {}
+              try { view.executeJavaScript(CLIPBOARD_SHIM, true); } catch {}
             });
           } catch {}
         }
       } catch {}
       try { view.executeJavaScript(SAME_TAB_POLICY, true); } catch {}
+      try { view.executeJavaScript(CLIPBOARD_SHIM, true); } catch {}
     }
 
     function keyboardCode(name) {      const map = {
@@ -899,6 +947,9 @@ window.__ModuleLoader__.load({
       // A background window has no one looking at the panel; skip the round trips entirely.
       if (typeof document !== 'undefined' && document.hidden) return;
       const view = findWebview();
+      // Install the bridge-side helpers (same-tab policy + clipboard shim) even when no tool
+      // call has attached CDP yet, so copy buttons work while the user browses on their own.
+      if (view) installSameTabPolicy(view);
       const probe = { at: Date.now(), hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
       if (view) probe.capabilities = capabilities(view);
       // Only post when something actually changed: a quiet panel used to cost a POST every

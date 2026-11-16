@@ -1,5 +1,9 @@
 # 变更记录
 
+## 0.9.6
+
+- 剪贴板补丁改成双路径注入：CDP 附着时用 `Page.addScriptToEvaluateOnNewDocument`；没附着时由渲染进程在页面就绪/心跳时注入。插件刚重载或用户只是自己点按钮复制也能生效。
+
 ## 0.9.5
 
 - **修复内置浏览器复制失效**：DSH 给侧栏浏览器 session 把所有权限请求都拒绝了，`navigator.clipboard.writeText` 一律 `NotAllowedError`，GitHub 这类按钮复制到不了系统剪贴板。注入脚本把异步 Clipboard API 改走 `execCommand('copy')`，按钮复制恢复正常，面板收起时也有效。
