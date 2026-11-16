@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.12';
+    const VERSION = '0.9.13';
 
     const React = require('react');
     const h = React.createElement;
@@ -1101,6 +1101,19 @@ window.__ModuleLoader__.load({
        The shipped preview renders .html inside a sandboxed frame, which the agent
        cannot drive. This header action reopens the same file in the sidebar
        browser (served from loopback by the Host), where all browser_* tools work. */
+    function openFileInBrowser(filePath) {
+      return fetch(apiBase() + OPEN_FILE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      })
+        .then((response) => response.json().catch(() => null))
+        .then((answer) => {
+          if (!answer || answer.error) throw new Error((answer && answer.error) || '打开失败');
+          return answer;
+        });
+    }
+
     function OpenInKattAction(props) {
       const path = props && props.absolutePath;
       const [busy, setBusy] = React.useState(false);
@@ -1110,15 +1123,7 @@ window.__ModuleLoader__.load({
         if (busy) return;
         setBusy(true);
         setError('');
-        fetch(apiBase() + OPEN_FILE_URL, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ path }),
-        })
-          .then((response) => response.json().catch(() => null))
-          .then((answer) => {
-            if (!answer || answer.error) setError((answer && answer.error) || '打开失败');
-          })
+        openFileInBrowser(path)
           .catch((failure) => setError(String((failure && failure.message) || failure)))
           .finally(() => setBusy(false));
       };
@@ -1131,6 +1136,41 @@ window.__ModuleLoader__.load({
       }, busy ? '打开中…' : (error !== '' ? '重试' : 'Katt 浏览器'));
     }
 
+    /* ---- files navigator interception ----
+       Clicking an .html entry in the workspace file list normally opens the shipped
+       document preview (a sandboxed frame with no CDP). Route those clicks to this
+       plugin's browser instead, so the page the user opens is the one the agent can
+       read and click. Buttons inside a row keep their own behavior. */
+    function installFileOpenInterceptor() {
+      try {
+        if (typeof window === 'undefined' || window.__kattFileOpenInterceptor) return;
+        window.__kattFileOpenInterceptor = true;
+        const handler = (event) => {
+          try {
+            if (!event || event.defaultPrevented || event.button > 0) return;
+            const target = event.target;
+            if (!target || typeof target.closest !== 'function') return;
+            if (target.closest('button, a, input, select, textarea')) return;
+            const row = target.closest('[data-files-entry="file"][data-files-path]');
+            if (!row) return;
+            const filePath = String(row.getAttribute('data-files-path') || '');
+            if (!/\.html?$/i.test(filePath)) return;
+            if (!/^[a-zA-Z]:[\\/]/.test(filePath)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            openFileInBrowser(filePath).catch((failure) => {
+              try { console.warn('[katt-browser] open in browser failed:', failure); } catch (ignored) { /* no console */ }
+            });
+          } catch (error) { /* let the host handle the click */ }
+        };
+        document.addEventListener('click', handler, true);
+        window.__kattFileOpenInterceptorStop = () => {
+          try { document.removeEventListener('click', handler, true); } catch (error) { /* already gone */ }
+          window.__kattFileOpenInterceptor = false;
+        };
+      } catch (error) { /* presentation only */ }
+    }
+
     return {
       inject: ['sidebarRight', 'layout', 'slots'],
       apply(ctx) {
@@ -1139,6 +1179,7 @@ window.__ModuleLoader__.load({
         bootstrap();
         heartbeat();
         installBrowserChrome();
+        installFileOpenInterceptor();
         try {
           ctx.effect(() => ctx.slots.inject('sidebar.right.tab.document.actions', () => ctx.slots.register({
             name: 'sidebar.right.tab.document.actions',
@@ -1153,6 +1194,7 @@ window.__ModuleLoader__.load({
           clearInterval(pageStateTimer);
           pollStopped = true;
           if (typeof window !== 'undefined' && window.__kattBrowserChromeStop) window.__kattBrowserChromeStop();
+          if (typeof window !== 'undefined' && window.__kattFileOpenInterceptorStop) window.__kattFileOpenInterceptorStop();
         });
       },
     };
