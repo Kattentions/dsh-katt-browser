@@ -50,12 +50,12 @@
       "category": "ui",
       "versions": [
         {
-          "version": "0.9.14",
-          "publishTimestamp": 1794838745,
+          "version": "0.9.16",
+          "publishTimestamp": 1794839627,
           "source": {
             "type": "git",
             "url": "https://github.com/Kattentions/dsh-katt-browser.git",
-            "commit": "6788e4ed4d38be9d2228c751b39bbe5bfd01e894"
+            "commit": "ce84672d24e800df546c7c336407f87ded79a3b3"
           }
         }
       ]
