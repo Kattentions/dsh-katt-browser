@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.9';
+    const VERSION = '0.9.10';
 
     const ORIGINS = [''];
     try {
@@ -779,6 +779,30 @@ window.__ModuleLoader__.load({
       if (op === 'reveal') {
         revealPanel = Boolean(args && args.allow);
         return { ok: true, revealPanel };
+      }
+      if (op === 'expand') {
+        /* One-shot "show me the panel" for a first click when the user never opened
+           the right sidebar. Unlike reveal, this does not persist the preference.
+           With several tabs open the wanted URL decides which tab becomes active. */
+        const wanted = String((args && args.url) || '');
+        const normalize = (value) => String(value || '').split('#')[0].replace(/\/+$/, '').toLowerCase();
+        const target = normalize(wanted);
+        const saved = revealPanel;
+        revealPanel = true;
+        try { expandRightbar(); } catch { /* layout service unavailable */ }
+        const views = [...document.querySelectorAll('webview')];
+        const match = (target && views.find((element) => {
+          try { return normalize(element.getURL && element.getURL()) === target; } catch { return false; }
+        })) || views.find((element) => {
+          try { return normalize(element.getURL && element.getURL()).includes(target.split('/')[2] || ''); } catch { return false; }
+        }) || view;
+        if (match) {
+          const tabId = tabIdOf(match);
+          if (tabId) await activateTab(tabId);
+        }
+        revealPanel = saved;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return { ok: true, tabId: match ? tabIdOf(match) : null };
       }
       if (op === 'tabs') {
         const close = Boolean(args && args.close);
