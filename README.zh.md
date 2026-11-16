@@ -19,15 +19,12 @@ DeepSeek Harness（DSH）桌面版插件：把应用内置的侧栏浏览器变�
 
 ## 安装
 
-```sh
 dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
-```
 
 或从本地目录安装：
 
 ```sh
 dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
-```
 
 装完重启 DSH。侧栏浏览器就是你（用户）和 agent 共用的一块页面：同一个页面、同一份 Cookie、同一个滚动位置。
 
@@ -44,7 +41,6 @@ dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
     revealPanel: false     # true = 工具操作时允许展开侧栏（默认关闭）
     cdpIdleDetachMs: 45000 # 空闲多少毫秒断开 CDP（默认 45000；0 = 不断开）
     instrument: true       # false = 重页面跳过插桩
-```
 
 ## 给 agent 的能力
 
@@ -62,8 +58,8 @@ dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
 
 - `browser_open` / `back` / `forward` / `reload`，支持 `waitFor` / `waitMs` 等 SPA 水合
 - `browser_click`（ref 或坐标）、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_hover`、`browser_upload`
+- `browser_zoom` — 页面缩放：`in` / `out` / `reset` / `set`，0.25~5 倍
 - `browser_tabs` — 列表 / 切换 / 新建 / 关闭
-- 删除、支付、退订这类危险按钮需要 `confirm=true` 才会执行
 
 **账号与状态**
 

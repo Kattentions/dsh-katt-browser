@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.6';
+    const VERSION = '0.9.7';
 
     const ORIGINS = [''];
     try {
@@ -156,7 +156,7 @@ window.__ModuleLoader__.load({
     }
 
     function capabilities(view) {
-      const names = ['loadURL', 'getURL', 'getTitle', 'executeJavaScript', 'sendInputEvent', 'goBack', 'goForward', 'reload', 'capturePage', 'focus', 'stop', 'isLoading'];
+      const names = ['loadURL', 'getURL', 'getTitle', 'executeJavaScript', 'sendInputEvent', 'goBack', 'goForward', 'reload', 'capturePage', 'focus', 'stop', 'isLoading', 'setZoomFactor', 'getZoomFactor'];
       const out = {};
       for (const name of names) out[name] = typeof view[name] === 'function';
       out.tag = view.tagName;
@@ -666,7 +666,23 @@ window.__ModuleLoader__.load({
       if (op === 'click') return doClick(view, args);
       if (op === 'type') return doType(view, args);
       if (op === 'press') return doPress(view, args);
-      if (op === 'scroll') return doScroll(view, args);
+      if (op === 'zoom') {
+        // Zoom is the guest's own page zoom (the same control Ctrl+= uses), so the
+        // layout reflows instead of the page being scaled like an image.
+        const wanted = Number(args && args.factor);
+        const readZoom = () => {
+          try { return typeof view.getZoomFactor === 'function' ? Number(view.getZoomFactor()) || 1 : 1; } catch (error) { return 1; }
+        };
+        if (!Number.isFinite(wanted) || wanted <= 0) return { ok: true, factor: readZoom() };
+        const next = Math.min(5, Math.max(0.25, wanted));
+        if (typeof view.setZoomFactor === 'function') {
+          view.setZoomFactor(next);
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          return { ok: true, factor: readZoom(), mode: 'webview' };
+        }
+        await view.executeJavaScript('document.documentElement.style.zoom=' + JSON.stringify(String(next)), true);
+        return { ok: true, factor: next, mode: 'css' };
+      }      if (op === 'scroll') return doScroll(view, args);
       if (op === 'back') { if (typeof view.goBack === 'function') view.goBack(); else await guestEval(view, 'history.back()'); return { ok: true }; }
       if (op === 'forward') { if (typeof view.goForward === 'function') view.goForward(); else await guestEval(view, 'history.forward()'); return { ok: true }; }
       if (op === 'reload') { if (typeof view.reload === 'function') view.reload(); return { ok: true }; }

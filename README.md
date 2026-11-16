@@ -21,15 +21,10 @@ is unavailable. Account snapshots live beside the driver and are encrypted at re
 
 ## Install
 
-```sh
-dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
-```
 
 Or from a local checkout:
 
-```sh
 dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
-```
 
 Restart DSH after installing. The sidebar browser tab is the shared surface: you and the agent operate the same page, the same cookies and the same scroll position.
 
@@ -46,7 +41,6 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
     revealPanel: false     # true = tool calls may open the sidebar (off by default)
     cdpIdleDetachMs: 45000 # detach CDP after this many idle ms (0 = stay attached)
     instrument: true       # false = skip page instrumentation on heavy sites
-```
 
 ## What it gives the agent
 
@@ -64,8 +58,8 @@ Restart DSH after installing. The sidebar browser tab is the shared surface: you
 
 - `browser_open` / `back` / `forward` / `reload` with `waitFor` / `waitMs` for SPA hydration
 - `browser_click` (ref or coordinates), `browser_type`, `browser_press_key`, `browser_scroll`, `browser_hover`, `browser_upload`
+- `browser_zoom` — `in` / `out` / `reset` / `set` with a 0.25–5 factor (page zoom, layout reflows)
 - `browser_tabs` — list / switch / new / close
-- Dangerous clicks (delete/pay/unsubscribe…) require `confirm=true`
 
 **Accounts and state**
 
@@ -87,6 +81,7 @@ A canvas game whose state never touches the DOM: `browser_instrument` reads the 
 
 ![Canvas game state via worker messages](docs/images/canvas-game.png)
 
+- `browser_zoom` uses the webview's page zoom (the same control as Ctrl+=, layout reflows) and falls back to CDP page scale / CSS zoom when the panel helper is unavailable.
 ### Performance
 
 - **Idle detach**: 45 s without a browser call detaches CDP (`cdpIdleDetachMs`), reconnecting on
@@ -136,7 +131,6 @@ browser_network  filter=api      -> GET /api/... 200 application/json 120ms
 # 4. keep and switch accounts
 browser_cookies save name=work   -> 17 cookies, 10 local keys, 1 IndexedDB, encrypted
 browser_cookies load name=work   -> storageRestored: true
-```
 
 ## Discover / plugin market
 

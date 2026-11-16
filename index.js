@@ -994,6 +994,16 @@ function buildTools(browser) {
       execute: async (args) => browser.pressKey(String(args.key)),
     },
     {
+      name: 'browser_zoom',
+      description: '放大或缩小当前页面（相当于浏览器的 Ctrl+= / Ctrl+-）。direction: in 放大、out 缩小、reset 回到 100%、set 指定倍数；倍数范围 0.25~5。',
+      parameters: schema({
+        direction: { type: 'string', enum: ['in', 'out', 'reset', 'set'], description: '缩放方向，默认 in' },
+        factor: { type: 'number', description: 'set 时的缩放倍数，例如 1.25、0.8' },
+      }),
+      output,
+      execute: async (args) => browser.zoom(String((args && args.direction) || 'in'), Number(args && args.factor)),
+    },
+    {
       name: 'browser_scroll',
       description: '在页面中滚动，正数向下、负数向上（单位：像素）。',
       parameters: schema({ deltaY: { type: 'number' } }, ['deltaY']),
@@ -1007,6 +1017,7 @@ function buildTools(browser) {
       output,
       execute: async () => ({
         ...browser.state,
+        zoom: browser.diagnostics?.zoomFactor ?? undefined,
         ...(browser.probe ? { panel: browser.probe } : {}),
         barriers: await browser.barriers?.().catch(() => null),
       }),

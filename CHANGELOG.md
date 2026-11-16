@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.7
+
+- 新增 `browser_zoom`：in/out/reset/set，0.25~5 倍，用 webview 页面缩放（布局重排，不是整页拉伸）；没有 webview 通道时退回 CDP page scale / CSS zoom。
+- `browser_state` 返回实际缩放倍数，`browser_probe` 报告缩放能力。
+
 ## 0.9.6
 
 - 剪贴板补丁改成双路径注入：CDP 附着时用 `Page.addScriptToEvaluateOnNewDocument`；没附着时由渲染进程在页面就绪/心跳时注入。插件刚重载或用户只是自己点按钮复制也能生效。
