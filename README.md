@@ -82,6 +82,11 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 ```
 
 
+
+### Opening a local HTML file
+
+- The document preview header gets a **Katt browser** button: one click maps the file onto `http://127.0.0.1:<port>/...` and opens it in the sidebar browser (the shipped preview is a sandboxed frame without CDP, so the agent cannot drive it).
+- Or let the agent call `browser_open_file` with a path; it starts the server and opens the page in one step.
 ## Configuration
 
 ```yaml

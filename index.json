@@ -1,100 +1,100 @@
 {
-    "format":  1,
-    "title":  {
-                  "en":  "Katt plugins for DeepSeek Harness",
-                  "zh":  "Katt 的 DSH 插件"
-              },
-    "description":  {
-                        "en":  "Two plugins that work without configuration: a sidebar browser for the agent, and a LAN bridge that puts the same DSH on your phone.",
-                        "zh":  "两个装完就能用的插件：给 agent 用的侧栏浏览器，以及把同一个 DSH 放到手机上的局域网桥。"
-                    },
-    "metadata":  {
-                     "categories":  {
-                                        "ui":  {
-                                                   "title":  {
-                                                                 "en":  "Browser \u0026 UI",
-                                                                 "zh":  "浏览器与界面"
-                                                             }
-                                               },
-                                        "remote":  {
-                                                       "title":  {
-                                                                     "en":  "Remote \u0026 Mobile",
-                                                                     "zh":  "远程与移动"
-                                                                 }
-                                                   }
-                                    }
-                 },
-    "plugins":  [
-                    {
-                        "name":  "dsh-katt-browser",
-                        "title":  {
-                                      "en":  "Katt Browser",
-                                      "zh":  "Katt 侧栏浏览器"
-                                  },
-                        "description":  {
-                                            "en":  "Sidebar browser the agent drives: structure-first page reading, cookies, downloads and zoom. Works out of the box, no DevTools flag needed.",
-                                            "zh":  "agent 能操作的右侧栏浏览器：结构化读页面、Cookie、下载和缩放。装完就能用，不用加启动参数。"
-                                        },
-                        "author":  "Kattentions",
-                        "homepage":  "https://github.com/Kattentions/dsh-katt-browser",
-                        "repository":  {
-                                           "url":  "https://github.com/Kattentions/dsh-katt-browser"
-                                       },
-                        "keywords":  [
-                                         "browser",
-                                         "sidebar",
-                                         "cdp",
-                                         "agent",
-                                         "tools"
-                                     ],
-                        "category":  "ui",
-                        "versions":  [
-                                         {
-                                             "version":  "0.9.10",
-                                             "publishTimestamp":  1794836469,
-                                             "source":  {
-                                                            "url":  "https://github.com/Kattentions/dsh-katt-browser.git",
-                                                            "commit":  "3fbd8d2aab6b3ed9eb5f2a1c73f88e59f5199e3d",
-                                                            "type":  "git"
-                                                        }
-                                         }
-                                     ]
-                    },
-                    {
-                        "name":  "dsh-mobile-bridge",
-                        "title":  {
-                                      "en":  "DSH Mobile Bridge",
-                                      "zh":  "DSH 手机桥"
-                                  },
-                        "description":  {
-                                            "en":  "LAN bridge for phones: QR pairing, cookie-isolated GUI proxy, APK download page, turn-end notifications and a Device connections settings page.",
-                                            "zh":  "手机访问 DSH 的局域网桥：扫码配对、隔离 Cookie 的代理、APK 下载页、完成通知，以及设置里的「设备互联」页。"
-                                        },
-                        "author":  "Kattentions",
-                        "homepage":  "https://github.com/Kattentions/dsh-mobile-bridge",
-                        "repository":  {
-                                           "url":  "https://github.com/Kattentions/dsh-mobile-bridge"
-                                       },
-                        "keywords":  [
-                                         "mobile",
-                                         "remote",
-                                         "pairing",
-                                         "lan",
-                                         "android",
-                                         "qr"
-                                     ],
-                        "category":  "remote",
-                        "versions":  [
-                                         {
-                                             "version":  "0.2.0",
-                                             "publishTimestamp":  1794836469,
-                                             "source":  {
-                                                            "url":  "https://github.com/Kattentions/dsh-mobile-bridge.git",
-                                                            "commit":  "40c7447fd888c4c94a56b913d1621511ea006192",
-                                                            "type":  "git"
-                                                        }
-                                         }
-                                     ]
-                    }
-                ]
+  "format": 1,
+  "title": {
+    "en": "Katt plugins for DeepSeek Harness",
+    "zh": "Katt 的 DSH 插件"
+  },
+  "description": {
+    "en": "Two plugins that work without configuration: a sidebar browser for the agent, and a LAN bridge that puts the same DSH on your phone.",
+    "zh": "两个装完就能用的插件：给 agent 用的侧栏浏览器，以及把同一个 DSH 放到手机上的局域网桥。"
+  },
+  "metadata": {
+    "categories": {
+      "ui": {
+        "title": {
+          "en": "Browser & UI",
+          "zh": "浏览器与界面"
+        }
+      },
+      "remote": {
+        "title": {
+          "en": "Remote & Mobile",
+          "zh": "远程与移动"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-katt-browser",
+      "title": {
+        "en": "Katt Browser",
+        "zh": "Katt 侧栏浏览器"
+      },
+      "description": {
+        "en": "Sidebar browser the agent drives: structure-first page reading, cookies, downloads and zoom. Works out of the box, no DevTools flag needed.",
+        "zh": "agent 能操作的右侧栏浏览器：结构化读页面、Cookie、下载和缩放。装完就能用，不用加启动参数。"
+      },
+      "author": "Kattentions",
+      "homepage": "https://github.com/Kattentions/dsh-katt-browser",
+      "repository": {
+        "url": "https://github.com/Kattentions/dsh-katt-browser"
+      },
+      "keywords": [
+        "browser",
+        "sidebar",
+        "cdp",
+        "agent",
+        "tools"
+      ],
+      "category": "ui",
+      "versions": [
+        {
+          "version": "0.9.11",
+          "publishTimestamp": 1794837235,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Kattentions/dsh-katt-browser.git",
+            "commit": "8a552064ef4501536cc8de5f18adcc40d4f476d2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-mobile-bridge",
+      "title": {
+        "en": "DSH Mobile Bridge",
+        "zh": "DSH 手机桥"
+      },
+      "description": {
+        "en": "LAN bridge for phones: QR pairing, cookie-isolated GUI proxy, APK download page, turn-end notifications and a Device connections settings page.",
+        "zh": "手机访问 DSH 的局域网桥：扫码配对、隔离 Cookie 的代理、APK 下载页、完成通知，以及设置里的「设备互联」页。"
+      },
+      "author": "Kattentions",
+      "homepage": "https://github.com/Kattentions/dsh-mobile-bridge",
+      "repository": {
+        "url": "https://github.com/Kattentions/dsh-mobile-bridge"
+      },
+      "keywords": [
+        "mobile",
+        "remote",
+        "pairing",
+        "lan",
+        "android",
+        "qr"
+      ],
+      "category": "remote",
+      "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1794836469,
+          "source": {
+            "url": "https://github.com/Kattentions/dsh-mobile-bridge.git",
+            "commit": "40c7447fd888c4c94a56b913d1621511ea006192",
+            "type": "git"
+          }
+        }
+      ]
+    }
+  ]
 }
