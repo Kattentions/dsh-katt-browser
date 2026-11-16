@@ -17,6 +17,26 @@ DeepSeek Harness（DSH）桌面版插件：把应用内置的侧栏浏览器变�
 
 工具层统一进混合驱动：优先通过 DevTools 协议（WebSocket 连 `--remote-debugging-port`）附到侧栏 webview 的 guest 上，CDP 不可用时退回页面内桥。账号快照在驱动旁边，落盘加密。
 
+## 最省事的安装
+
+装完就能用：不用加启动参数，不用改配置。
+
+1. DSH 里打开 **插件 → 发现 → 索引源**，加上这个地址：
+
+   ```
+   https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/index.json
+   ```
+
+   这个源里有两个插件（侧栏浏览器 + 手机桥），点「安装」就行。
+2. 装完重启 DSH。
+3. 直接让 agent 打开网页即可；右侧栏没开、甚至没打开过浏览器标签页，第一次操作会自动展开。
+
+命令行等价（不需要 git）：
+
+```sh
+dsh plugin --profile desktop add https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/dist/dsh-katt-browser-latest.tgz
+```
+
 ## 安装
 
 下面几种任选，前两种不需要 git。

@@ -19,6 +19,26 @@ Tools talk to a hybrid driver: it attaches to the sidebar webview guest over the
 protocol (WebSocket to `--remote-debugging-port`) and falls back to an in-page bridge when CDP
 is unavailable. Account snapshots live beside the driver and are encrypted at rest.
 
+## Easiest install
+
+Works right after installation: no launch flags, no configuration.
+
+1. In DSH open **Plugins → Discover → Index sources** and add:
+
+   ```
+   https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/index.json
+   ```
+
+   The source lists two plugins (sidebar browser + mobile bridge); press Install.
+2. Restart DSH.
+3. Ask the agent to open a page. If the right sidebar was never opened, the first action expands it automatically.
+
+Command line equivalent (no git):
+
+```sh
+dsh plugin --profile desktop add https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/dist/dsh-katt-browser-latest.tgz
+```
+
 ## Install
 
 Pick whichever fits your machine. The first two need no git.
