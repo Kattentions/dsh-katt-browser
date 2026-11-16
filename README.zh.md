@@ -81,9 +81,10 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 
 
 
-### 打开工作区的本地 html
+### 打开工作区的本地 html（默认就是这个浏览器）
 
-- 文档预览标题栏上有「Katt 浏览器」按钮：点一下就把当前文件映射成 `http://127.0.0.1:<port>/...`，在侧栏浏览器里打开（原生预览是沙箱 iframe，没有 CDP，agent 操作不了）
+- 在右侧栏「文件」列表里点 `.html` / `.htm`：直接在本插件浏览器里打开（自动 `http://127.0.0.1:<port>/...`），不会落到内置的沙箱预览；agent 随后可以 snapshot / click / evaluate
+- 已经打开着预览时，标题栏的「Katt 浏览器」按钮也能一键切过来
 - 也可以直接让 agent 用 `browser_open_file`（给路径即可，自动起服务 + 打开），比 `browser_serve` + `browser_open` 少两步
 ## 配置
 
