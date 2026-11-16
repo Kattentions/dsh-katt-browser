@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.7';
+    const VERSION = '0.9.8';
 
     const ORIGINS = [''];
     try {
@@ -276,11 +276,34 @@ window.__ModuleLoader__.load({
     const ENUM_FN = `function kattList() {
       const nodes = [];
       const selector = 'a,button,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[contenteditable="true"]';
-      for (const el of document.querySelectorAll(selector)) {
+      const usable = (el) => {
         const rect = el.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return false;
         const style = window.getComputedStyle(el);
-        if (rect.width < 2 || rect.height < 2) continue;
-        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
+        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') return false;
+        return true;
+      };
+      for (const el of document.querySelectorAll(selector)) {
+        if (usable(el)) nodes.push(el);
+      }
+      if (nodes.length >= 5) return nodes;
+      /* Div-built pages (courses, admin consoles) have almost no native controls: the
+         expand arrow is a div with cursor:pointer. Add anything that behaves like a
+         control so the ref list is still actionable, keeping this one ordered list so
+         click/type indices stay in sync with the snapshot. */
+      const all = document.querySelectorAll('body *');
+      for (const el of all) {
+        if (nodes.length >= 80) break;
+        if (el.hasAttribute('role')) continue;
+        const tag = el.tagName;
+        if (tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'SUMMARY' || tag === 'OPTION') continue;
+        if (!usable(el)) continue;
+        const style = window.getComputedStyle(el);
+        const clickable = style.cursor === 'pointer' || typeof el.onclick === 'function'
+          || el.hasAttribute('onclick') || el.hasAttribute('aria-expanded')
+          || el.hasAttribute('tabindex') || el.hasAttribute('data-action');
+        if (!clickable) continue;
+        if (!kattLabel(el)) continue;
         nodes.push(el);
       }
       return nodes;

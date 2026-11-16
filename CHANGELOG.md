@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.9.8
+
+- **compact 快照不再返回空**：div 拼的页面没有 ARIA 角色时自动补 DOM 可点击候选（cursor:pointer / onclick / tabindex / aria-expanded），附正文文本和 note；实在没结构就退回正文。CDP 与桥两条通道都支持。
+- **提示词调整**：`browser_snapshot` 明确为读页面的首选，`browser_screenshot` 降级为最后手段（只有视觉信息或结构通道失效才用）。
+- **切换动画**：去掉整页压暗/模糊，改成 Chrome 式顶部 2px 双段进度条；新页面淡入 0.12s/86% 起。
+- 扫描失败时把原因放在 `domScanError` 里返回，便于排查。
+
 ## 0.9.7
 
 - 新增 `browser_zoom`：in/out/reset/set，0.25~5 倍，用 webview 页面缩放（布局重排，不是整页拉伸）；没有 webview 通道时退回 CDP page scale / CSS zoom。

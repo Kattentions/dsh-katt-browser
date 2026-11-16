@@ -944,7 +944,7 @@ function buildTools(browser) {
     },
     {
       name: 'browser_snapshot',
-      description: '读取当前页面的可交互元素清单（带 eN 引用）和可见文本，用于决定下一步点击/输入。detail=compact 只给交互元素省 token，full（默认）含文本节点。',
+      description: '读取页面结构：可交互元素清单（带 eN 引用）+ 文本。优先用它和 browser_evaluate 拿页面信息，不要先截图。detail=compact 省 token，只给交互元素和少量文本；div 拼的页面没有 ARIA 角色时会自动补 DOM 可点击候选，实在没有结构就返回正文文本并附 note。full（默认）含文本节点，最稳。',
       parameters: schema({
         detail: { type: 'string', enum: ['compact', 'full'], description: 'compact 只给交互元素；full 含文本节点（默认）' },
       }),
@@ -1210,7 +1210,7 @@ function buildTools(browser) {
     },
     {
       name: 'browser_screenshot',
-      description: '对当前视口截图并保存为 PNG，返回文件路径。',
+      description: '对当前视口截图并保存为 PNG。最后手段：页面信息优先用 browser_snapshot / browser_text / browser_evaluate 拿结构，只有结构表达不了视觉（canvas、图片、排版样式）或结构通道失效时才截图，截图读不出时长、数量这类数据。',
       parameters: schema({}),
       output,
       execute: async () => browser.screenshot('agent'),
