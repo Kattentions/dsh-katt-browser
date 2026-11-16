@@ -21,12 +21,46 @@ is unavailable. Account snapshots live beside the driver and are encrypted at re
 
 ## Install
 
+Pick whichever fits your machine. The first two need no git.
 
-Or from a local checkout:
+**1. npm (after `npm publish`)**
 
-dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
+```sh
+dsh plugin --profile desktop add dsh-katt-browser
+```
 
-Restart DSH after installing. The sidebar browser tab is the shared surface: you and the agent operate the same page, the same cookies and the same scroll position.
+**2. Release tarball — no git required**
+
+```sh
+# direct from GitHub Releases
+dsh plugin --profile desktop add https://github.com/Kattentions/dsh-katt-browser/releases/download/v0.9.9/dsh-katt-browser-0.9.9.tgz
+
+# jsDelivr mirror (usually faster in mainland China)
+dsh plugin --profile desktop add https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/dist/dsh-katt-browser-0.9.9.tgz
+```
+
+**3. Download, then install from disk**
+
+Unpack the tarball (`tar -xzf dsh-katt-browser-0.9.9.tgz`), then:
+
+```sh
+dsh plugin --profile desktop add file:C:\path\to\package
+```
+
+**4. Discover / plugin market**
+
+Add this index under **Plugins → Discover → Index sources**:
+
+```
+https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/index.json
+```
+
+**5. GitHub repository (needs git)**
+
+```sh
+dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
+```
+
 
 ## Configuration
 

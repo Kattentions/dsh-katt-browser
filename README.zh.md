@@ -19,14 +19,46 @@ DeepSeek Harness（DSH）桌面版插件：把应用内置的侧栏浏览器变�
 
 ## 安装
 
-dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
+下面几种任选，前两种不需要 git。
 
-或从本地目录安装：
+**1. npm（发布后）**
 
 ```sh
-dsh plugin --profile desktop add file:/path/to/dsh-katt-browser
+dsh plugin --profile desktop add dsh-katt-browser
+```
 
-装完重启 DSH。侧栏浏览器就是你（用户）和 agent 共用的一块页面：同一个页面、同一份 Cookie、同一个滚动位置。
+**2. Release 压缩包 —— 不需要 git**
+
+```sh
+# 直接从 GitHub Releases 装
+dsh plugin --profile desktop add https://github.com/Kattentions/dsh-katt-browser/releases/download/v0.9.9/dsh-katt-browser-0.9.9.tgz
+
+# jsDelivr 镜像（国内通常更快）
+dsh plugin --profile desktop add https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/dist/dsh-katt-browser-0.9.9.tgz
+```
+
+**3. 下载到本地再装**
+
+解包（`tar -xzf dsh-katt-browser-0.9.9.tgz`）后：
+
+```sh
+dsh plugin --profile desktop add file:C:\path\to\package
+```
+
+**4. 插件市场（Discover）**
+
+在 **插件 → 发现 → 索引源** 里加上：
+
+```
+https://cdn.jsdelivr.net/gh/Kattentions/dsh-katt-browser@main/index.json
+```
+
+**5. GitHub 仓库（需要 git）**
+
+```sh
+dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
+```
+
 
 ## 配置
 
