@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.13';
+    const VERSION = '0.9.14';
 
     const React = require('react');
     const h = React.createElement;
@@ -1145,27 +1145,48 @@ window.__ModuleLoader__.load({
       try {
         if (typeof window === 'undefined' || window.__kattFileOpenInterceptor) return;
         window.__kattFileOpenInterceptor = true;
-        const handler = (event) => {
+        const handled = new Map();
+        const decide = (event) => {
+          if (!event || event.defaultPrevented) return '';
+          if (typeof event.button === 'number' && event.button > 0) return '';
+          const target = event.target;
+          if (!target || typeof target.closest !== 'function') return '';
+          if (target.closest('input, select, textarea')) return '';
+          const row = target.closest('[data-files-entry="file"][data-files-path]');
+          if (!row) return '';
+          /* The row's open control is a <button> wrapping the file name; any other
+             button inside the row (an action menu) keeps its own behavior. */
+          const button = target.closest('button, a');
+          if (button) {
+            const name = row.querySelector('[class*="_name_"]');
+            if (name !== null && !button.contains(name)) return '';
+          }
+          const filePath = String(row.getAttribute('data-files-path') || '');
+          if (!/\.html?$/i.test(filePath)) return '';
+          if (!/^[a-zA-Z]:[\\/]/.test(filePath)) return '';
+          return filePath;
+        };
+        const invoke = (event) => {
           try {
-            if (!event || event.defaultPrevented || event.button > 0) return;
-            const target = event.target;
-            if (!target || typeof target.closest !== 'function') return;
-            if (target.closest('button, a, input, select, textarea')) return;
-            const row = target.closest('[data-files-entry="file"][data-files-path]');
-            if (!row) return;
-            const filePath = String(row.getAttribute('data-files-path') || '');
-            if (!/\.html?$/i.test(filePath)) return;
-            if (!/^[a-zA-Z]:[\\/]/.test(filePath)) return;
+            const filePath = decide(event);
+            if (filePath === '') return;
             event.preventDefault();
             event.stopPropagation();
+            const now = Date.now();
+            if (now - (handled.get(filePath) || 0) < 1500) return;
+            handled.set(filePath, now);
             openFileInBrowser(filePath).catch((failure) => {
               try { console.warn('[katt-browser] open in browser failed:', failure); } catch (ignored) { /* no console */ }
             });
-          } catch (error) { /* let the host handle the click */ }
+          } catch (error) { /* let the host handle it */ }
         };
-        document.addEventListener('click', handler, true);
+        document.addEventListener('pointerdown', invoke, true);
+        document.addEventListener('click', invoke, true);
         window.__kattFileOpenInterceptorStop = () => {
-          try { document.removeEventListener('click', handler, true); } catch (error) { /* already gone */ }
+          try {
+            document.removeEventListener('pointerdown', invoke, true);
+            document.removeEventListener('click', invoke, true);
+          } catch (error) { /* already gone */ }
           window.__kattFileOpenInterceptor = false;
         };
       } catch (error) { /* presentation only */ }
