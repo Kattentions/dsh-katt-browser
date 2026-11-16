@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PROBE_URL = '/api/katt-browser/probe';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
-    const VERSION = '0.9.8';
+    const VERSION = '0.9.9';
 
     const ORIGINS = [''];
     try {
@@ -1003,6 +1003,72 @@ window.__ModuleLoader__.load({
       await post(PAGE_STATE_URL, { ...state, v: VERSION });
     }
 
+    /* ---- panel chrome ----
+       The shipped browser panel paints a centred "正在打开…" placeholder while a
+       page loads. That reads like a stuck label; replace it with the browser
+       convention: hide the placeholder, spin a ring at the end of the address bar.
+       Everything here is presentation only and degrades to a no-op on other builds. */
+    function installBrowserChrome() {
+      try {
+        if (typeof window === 'undefined' || window.__kattBrowserChrome) return;
+        window.__kattBrowserChrome = true;
+        const style = document.createElement('style');
+        style.id = '__katt_browser_chrome_style';
+        style.textContent = [
+          '.katt-browser-root.katt-loading [class*="placeholder"]{display:none !important}',
+          '.katt-browser-spinner{width:13px;height:13px;flex:none;margin:0 8px;border-radius:50%;box-sizing:border-box;',
+          'border:1.5px solid currentColor;border-top-color:transparent;opacity:.6;display:none;',
+          'animation:kattSpin .65s linear infinite}',
+          '.katt-browser-root.katt-loading .katt-browser-spinner{display:inline-block}',
+          '@keyframes kattSpin{to{transform:rotate(360deg)}}',
+        ].join('');
+        (document.head || document.documentElement).appendChild(style);
+        const tick = () => {
+          try {
+            const input = document.querySelector('input[aria-label="输入 HTTP(S) 地址"], input[placeholder*="HTTP(S)"]');
+            if (!input) return;
+            const form = typeof input.closest === 'function' ? input.closest('form') : null;
+            const root = form && form.parentElement ? form.parentElement : null;
+            if (!root) return;
+            root.classList.add('katt-browser-root');
+            if (form && !form.querySelector('.katt-browser-spinner')) {
+              const spinner = document.createElement('span');
+              spinner.className = 'katt-browser-spinner';
+              spinner.setAttribute('aria-hidden', 'true');
+              form.appendChild(spinner);
+            }
+            const busy = Boolean(root.querySelector('[aria-busy="true"]'));
+            root.classList.toggle('katt-loading', busy);
+            /* Newer or older shells may render the label as plain text instead of the
+               placeholder box; hide just those nodes, not the whole start screen. */
+            for (const node of root.querySelectorAll('[class*="start"]')) {
+              if (/正在打开|Opening\.\.\./.test((node.textContent || '').trim())) node.style.display = 'none';
+            }
+          } catch (error) { /* panel not mounted yet */ }
+        };
+        let scheduled = false;
+        const schedule = () => {
+          if (scheduled) return;
+          scheduled = true;
+          window.requestAnimationFrame(() => { scheduled = false; tick(); });
+        };
+        const observer = new MutationObserver(schedule);
+        observer.observe(document.body || document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['aria-busy', 'class'],
+        });
+        const timer = window.setInterval(tick, 1000);
+        tick();
+        window.__kattBrowserChromeStop = () => {
+          try { observer.disconnect(); } catch (error) { /* already gone */ }
+          window.clearInterval(timer);
+          window.__kattBrowserChrome = false;
+        };
+      } catch (error) { /* presentation only */ }
+    }
+
     return {
       inject: ['sidebarRight', 'layout'],
       apply(ctx) {
@@ -1010,11 +1076,13 @@ window.__ModuleLoader__.load({
         if (typeof window !== 'undefined') window.__KATT_WEBVIEW_BRIDGE__ = true;
         bootstrap();
         heartbeat();
+        installBrowserChrome();
         if (pageStateTimer) clearInterval(pageStateTimer);
         pageStateTimer = setInterval(heartbeat, 8000);
         ctx.effect(() => () => {
           clearInterval(pageStateTimer);
           pollStopped = true;
+          if (typeof window !== 'undefined' && window.__kattBrowserChromeStop) window.__kattBrowserChromeStop();
         });
       },
     };
