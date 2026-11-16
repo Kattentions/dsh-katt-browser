@@ -18,10 +18,8 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.16';
+    const VERSION = '0.9.17';
 
-    const React = require('react');
-    const h = React.createElement;
 
     const ORIGINS = [''];
     try {
@@ -1097,10 +1095,7 @@ window.__ModuleLoader__.load({
       } catch (error) { /* presentation only */ }
     }
 
-    /* ---- document preview action ----
-       The shipped preview renders .html inside a sandboxed frame, which the agent
-       cannot drive. This header action reopens the same file in the sidebar
-       browser (served from loopback by the Host), where all browser_* tools work. */
+    /* ---- open the current file in the plugin browser ---- */
     function openFileInBrowser(filePath) {
       return fetch(apiBase() + OPEN_FILE_URL, {
         method: 'POST',
@@ -1112,28 +1107,6 @@ window.__ModuleLoader__.load({
           if (!answer || answer.error) throw new Error((answer && answer.error) || '打开失败');
           return answer;
         });
-    }
-
-    function OpenInKattAction(props) {
-      const path = props && props.absolutePath;
-      const [busy, setBusy] = React.useState(false);
-      const [error, setError] = React.useState('');
-      if (typeof path !== 'string' || path === '') return null;
-      const open = () => {
-        if (busy) return;
-        setBusy(true);
-        setError('');
-        openFileInBrowser(path)
-          .catch((failure) => setError(String((failure && failure.message) || failure)))
-          .finally(() => setBusy(false));
-      };
-      return h('button', {
-        type: 'button',
-        className: 'katt-doc-open',
-        title: '在 Katt 浏览器（agent 能操作的那个）里打开',
-        onClick: open,
-        style: { font: 'inherit', fontSize: 12, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' },
-      }, busy ? '打开中…' : (error !== '' ? '重试' : 'Katt 浏览器'));
     }
 
     /* ---- files navigator interception ----
@@ -1273,7 +1246,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['sidebarRight', 'layout', 'slots', 'sessions'],
+      inject: ['sidebarRight', 'layout', 'sessions'],
       apply(ctx) {
         pluginCtx = ctx;
         if (typeof window !== 'undefined') window.__KATT_WEBVIEW_BRIDGE__ = true;
@@ -1282,14 +1255,6 @@ window.__ModuleLoader__.load({
         installBrowserChrome();
         installFileOpenInterceptor();
         installFileOpenServiceInterceptor();
-        try {
-          ctx.effect(() => ctx.slots.inject('sidebar.right.tab.document.actions', () => ctx.slots.register({
-            name: 'sidebar.right.tab.document.actions',
-            id: 'katt-browser-open',
-            order: 10,
-            label: () => '在 Katt 浏览器打开',
-          }, OpenInKattAction)));
-        } catch (error) { /* preview tab package not installed */ }
         if (pageStateTimer) clearInterval(pageStateTimer);
         pageStateTimer = setInterval(heartbeat, 8000);
         ctx.effect(() => () => {
