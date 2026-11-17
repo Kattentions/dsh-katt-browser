@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.53
+
+- 修一个状态残留：标签页关掉后，宿主还记着上一次的 `page-state`，`browser_probe` / `browser_doctor` 会显示一个已经不存在的页面（实测关闭 Example Domain 后仍报 `url: https://example.com/`）。现在没有挂载 webview 时客户端会清空状态（url/title 置空、viewport 归零），诊断里 `state.url` 变成空串。
+- 本轮回归检查：`npm run check` 两个仓库都过，`browser_doctor verdict ok`，桥诊断 pairedDevices 0 / pairingCodes 0 / authFailures 0。
+
 ## 0.9.52
 
 - 设置页的两个「在这里打开」（标签页行、排队行）之前仍直接调 `openTab(params.url)`，会落回首页；现在都走同一条已验证的 `open-here` 命令，真正加载目标 URL。实测点击可见会话行按钮后，标签页仍是 Example Domain（`https://example.com/`），没有跳回 Bing。

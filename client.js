@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.52';
+    const VERSION = '0.9.53';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -62,6 +62,7 @@ window.__ModuleLoader__.load({
     let restoreLastPage = true;
     let lastPages = {};
     let sessionTitles = {};
+    let postedEmptyState = false;
     let maxHeadlessBrowsers = 3;
     let headlessInstances = 0;
     let pageStateTimer = null;
@@ -1422,7 +1423,18 @@ window.__ModuleLoader__.load({
       if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
       if (reply && reply.sessionTitles && typeof reply.sessionTitles === 'object') sessionTitles = reply.sessionTitles;
       }
-      if (hidden || !view) return;
+      if (hidden) return;
+      if (!view) {
+        /* The tab was closed; clear the Host's page state so probe/doctor do not
+           keep reporting a page that is no longer mounted. */
+        if (!postedEmptyState) {
+          postedEmptyState = true;
+          lastStateKey = '';
+          await post(PAGE_STATE_URL, { url: '', title: '', loading: false, ready: false, error: null, viewport: { width: 0, height: 0 }, panel: true, session: visibleSession(), v: VERSION });
+        }
+        return;
+      }
+      postedEmptyState = false;
       const state = await stateOf(view);
       const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
       if (stateKey === lastStateKey) return;
