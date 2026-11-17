@@ -1317,9 +1317,49 @@ function buildTools(browser) {
 export const inject = ['tools', 'webServer', 'agents'];
 export const name = 'katt-browser';
 
+/**
+ * One headless browser per session: every conversation gets its own profile
+ * directory, cookies and page, so two sessions never share history or scroll
+ * position. The proxy keeps the single "browser" object the rest of the plugin
+ * calls into while routing each call to the instance of the session that invoked
+ * the current tool.
+ */
+function createPooledHeadlessBrowser(config) {
+  const baseDir = typeof config.dataDir === 'string' && config.dataDir.trim()
+    ? config.dataDir.trim()
+    : path.join(os.homedir(), '.dsh', 'katt-browser');
+  const instances = new Map();
+  let current = '';
+  const keyOf = (id) => String(id || '').replace(/[^\w.-]+/g, '_').slice(0, 96) || 'default';
+  const instanceFor = (id) => {
+    const key = keyOf(id);
+    let instance = instances.get(key);
+    if (instance === undefined) {
+      instance = new BrowserSession({ ...config, dataDir: path.join(baseDir, 'sessions', key) });
+      instances.set(key, instance);
+    }
+    return instance;
+  };
+  return new Proxy({}, {
+    get(_target, property) {
+      if (property === 'setCallerSession') return (id) => { current = String(id || ''); };
+      if (property === 'callerSession') return current;
+      if (property === 'dispose') {
+        return () => {
+          for (const instance of instances.values()) { try { instance.dispose(); } catch {} }
+          instances.clear();
+        };
+      }
+      const instance = instanceFor(current);
+      const value = instance[property];
+      return typeof value === 'function' ? value.bind(instance) : value;
+    },
+  });
+}
+
 export function apply(ctx, config = {}) {
   const driver = config.driver === 'headless' ? 'headless' : 'webview';
-  const headless = driver === 'headless' ? new BrowserSession(config) : null;
+  const headless = driver === 'headless' ? createPooledHeadlessBrowser(config) : null;
   const pageWebview = driver === 'webview' ? new WebviewSession(config) : null;
   const webview = pageWebview ? new HybridSession(config, pageWebview) : null;
   const bridge = pageWebview ? pageWebview.bridge : null;
