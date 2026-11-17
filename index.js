@@ -8,7 +8,7 @@
  * cookies and the same scroll position.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { WebviewSession } from './lib/webview.js';
@@ -29,6 +29,7 @@ export const Config = z.object({
   instrument: z.boolean().default(true).description('是否注入页面插桩（worker/fetch/XHR/WebSocket）；重页面可关掉以减少开销'),
   cdpIdleDetachMs: z.natural().default(45000).description('空闲多少毫秒后断开 CDP（默认 45000；0 = 一直保持连接）。断开后下次操作会自动重连，避免长时间附着影响 Chromium 渲染节流'),
   homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
+  profileRetentionDays: z.natural().default(14).description('headless 每会话 profile 保留天数；启动时清理更旧的目录（0 = 不清理）'),
 });
 
 const EDGE_CANDIDATES = [
@@ -1325,6 +1326,18 @@ export const name = 'katt-browser';
  * the current tool.
  */
 function createPooledHeadlessBrowser(config) {
+  /* Session profiles are one browser each; without pruning they pile up forever. */
+  try {
+    const retentionDays = Number(config.profileRetentionDays);
+    const days = Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : 14;
+    const sessionsDir = path.join(typeof config.dataDir === 'string' && config.dataDir.trim() ? config.dataDir.trim() : path.join(os.homedir(), '.dsh', 'katt-browser'), 'sessions');
+    const cutoff = Date.now() - days * 86400000;
+    for (const entry of readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const target = path.join(sessionsDir, entry.name);
+      try { if (statSync(target).mtimeMs < cutoff) rmSync(target, { recursive: true, force: true }); } catch (error) { /* in use */ }
+    }
+  } catch (error) { /* first run or no directory yet */ }
   const baseDir = typeof config.dataDir === 'string' && config.dataDir.trim()
     ? config.dataDir.trim()
     : path.join(os.homedir(), '.dsh', 'katt-browser');
