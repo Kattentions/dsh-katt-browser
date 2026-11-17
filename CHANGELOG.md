@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.9.67
+
+- 加固发布准备脚本 `prepare-release`：
+  - 幂等——用当前版本再跑一次不会把 index 的 commit 重置成 PENDING，只会报告「already lists」；
+  - 内置一致性自检——跑完直接比对 package/client/index，不一致就退出 1，不必再记得跑另一条命令；
+  - 结尾提示写清顺序：先 commit release，再在后续 `market:` 提交里填 index commit，最后把 tag 打在后续提交上，之后不许 amend。
+- 背景：0.4.15 发布时手工只 bump 了 package.json、漏掉 index 版本，导致 tag 里索引写的是 0.4.14。这个脚本现在会在那一步直接拦下。
+
+
 ## 0.9.66
 
 - 新增 `scripts/check-boundaries.mjs` 并把 `npm run check` 串成「契约检查 + 会话边界检查」：扫 client.js 里遍历全部 webview/标签的语句，附近出现关闭、激活、导航且看不到按会话过滤（`ownerSession` / `callerSession` / `visibleSession`、`=== session` 等）就失败。纯列表/映射读取不算。
