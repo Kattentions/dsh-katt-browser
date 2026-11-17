@@ -999,13 +999,38 @@ function buildTools(browser) {
     },
     {
       name: 'browser_click',
-      description: '点击快照里的 eN 引用（真实鼠标事件）。删除/支付/注销这类危险按钮需要 confirm=true 才执行，否则只返回提示。',
+      description: '点击页面元素。优先用快照里的 eN 引用（ref，真实鼠标事件）；也可以给 selector 或 text（可见文字）让工具自己定位。删除/支付/注销这类危险按钮走 ref + confirm=true。',
       parameters: schema({
-        ref: { type: 'integer', minimum: 1, description: 'snapshot 返回的 ref' },
+        ref: { type: 'integer', minimum: 1, description: 'snapshot 返回的 ref（与 selector/text 三选一）' },
+        selector: { type: 'string', description: 'CSS 选择器，例如 button[type=submit]' },
+        text: { type: 'string', description: '按可见文字定位，例如「登录」' },
         confirm: { type: 'boolean', description: '危险操作（删除/支付等）需要显式确认' },
-      }, ['ref']),
+      }),
       output,
-      execute: async (args) => browser.clickRef(Number(args.ref), Boolean(args && args.confirm)),
+      execute: async (args) => {
+        const selector = args && args.selector ? String(args.selector) : '';
+        const text = args && args.text ? String(args.text) : '';
+        if (selector !== '' || text !== '') return browser.clickLocated({ selector, text });
+        if (!args || args.ref === undefined) return { error: '需要 ref、selector 或 text 之一' };
+        return browser.clickRef(Number(args.ref), Boolean(args.confirm));
+      },
+    },
+    {
+      name: 'browser_wait',
+      description: '等页面达到某个状态：选择器出现、正文包含某段文字、URL 前缀匹配，任一满足就返回；超时返回 timedOut 和最后一次没命中的原因。比反复 evaluate 轮询省事。',
+      parameters: schema({
+        selector: { type: 'string', description: 'CSS 选择器，元素出现且可见' },
+        text: { type: 'string', description: '页面正文里应包含的文字' },
+        url: { type: 'string', description: 'URL 前缀（不含 # 之后的片段）' },
+        timeoutMs: { type: 'number', description: '最长等待毫秒，默认 8000，上限 60000' },
+      }),
+      output,
+      execute: async (args) => browser.waitFor({
+        selector: args && args.selector,
+        text: args && args.text,
+        url: args && args.url,
+        timeoutMs: args && args.timeoutMs,
+      }),
     },
     {
       name: 'browser_type',
@@ -1186,10 +1211,17 @@ function buildTools(browser) {
     },
     {
       name: 'browser_text',
-      description: '把当前页面正文提取成可读文本（去掉导航/页脚/脚本），并返回标题、链接列表。适合读长文、整理资料。',
-      parameters: schema({ maxChars: { type: 'number', description: '正文最多保留多少字符，默认 4000' } }),
+      description: '把当前页面内容提取成可读文本（去掉导航/页脚/脚本），返回标题、链接列表。format=markdown 时保留标题层级、链接、列表、表格和代码块，更适合整理资料。',
+      parameters: schema({
+        maxChars: { type: 'number', description: '正文最多保留多少字符，默认 4000（markdown 默认 6000）' },
+        format: { type: 'string', enum: ['text', 'markdown'], description: 'text=纯文本（默认），markdown=结构化文本' },
+      }),
       output,
-      execute: async (args) => browser.pageText(args && args.maxChars ? args.maxChars : 4000),
+      execute: async (args) => {
+        const markdown = Boolean(args && args.format === 'markdown');
+        const limit = args && args.maxChars ? args.maxChars : (markdown ? 6000 : 4000);
+        return markdown ? browser.pageMarkdown(limit) : browser.pageText(limit);
+      },
     },
     {
       name: 'browser_table',
