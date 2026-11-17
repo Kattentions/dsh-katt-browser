@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.61';
+    const VERSION = '0.9.62';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -625,11 +625,12 @@ window.__ModuleLoader__.load({
      * just an address box. Fill the configured home in two ways: inject params.url
      * into openTab calls, and as a fallback submit the guide tab's address box.
      */
-    /** Where a fresh browser tab should go for the current session. */
-    function defaultPage() {
+    /** Where a fresh browser tab should go: the owning session's last page. */
+    function defaultPage(session) {
+      const owner = String(session || '') || visibleSession();
       if (restoreLastPage) {
         try {
-          const saved = lastPages[visibleSession()];
+          const saved = lastPages[owner];
           if (typeof saved === 'string' && saved !== '') return saved;
         } catch (error) { /* fall back to home */ }
       }
@@ -656,15 +657,16 @@ window.__ModuleLoader__.load({
       if (typeof window === 'undefined' || window.__kattGuideTabHome) return;
       window.__kattGuideTabHome = true;
       const seen = new WeakSet();
-      const submit = (input, props) => {
+      const submit = (input, props, session) => {
         try {
           if (!input.isConnected) return;
           input.focus();
+          const target = defaultPage(session);
           if (props && typeof props.onChange === 'function') {
-            props.onChange({ target: { value: defaultPage() }, currentTarget: { value: defaultPage() } });
+            props.onChange({ target: { value: target }, currentTarget: { value: target } });
           } else {
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, defaultPage());
+            setter.call(input, target);
             input.dispatchEvent(new Event('input', { bubbles: true }));
           }
           setTimeout(() => {
@@ -690,6 +692,9 @@ window.__ModuleLoader__.load({
         if (seen.has(tab)) return;
         /* Only the guide state has no guest yet; a loaded tab already owns a webview. */
         if (tab.querySelector('webview')) return;
+        /* A guide tab can belong to a hidden session; fill it with that session's
+           last page, never with the page of the session the user is watching. */
+        const owner = ownerSession(tab) || visibleSession();
         const input = tab.querySelector('input');
         if (!input) return;
         const placeholder = String(input.getAttribute('placeholder') || '');
@@ -697,7 +702,7 @@ window.__ModuleLoader__.load({
         seen.add(tab);
         const propsKey = Object.keys(input).find((key) => key.indexOf('__reactProps') === 0);
         const props = propsKey ? input[propsKey] : null;
-        setTimeout(() => submit(input, props), 800);
+        setTimeout(() => submit(input, props, owner), 800);
       };
       const scan = () => { for (const tab of document.querySelectorAll('[data-sidebar-right-tab]')) fill(tab); };
       try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (error) { /* no observer */ }
