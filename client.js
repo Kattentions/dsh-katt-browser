@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.64';
+    const VERSION = '0.9.65';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -787,13 +787,18 @@ window.__ModuleLoader__.load({
       cleanedTabs = true;
       const right = sidebarRight();
       const keep = tabIdOf(view);
+      /* Same rule as the explicit sweep: only blank start-page tabs of the session
+         that owns this view. Other sessions mount no webview while hidden, and
+         their tabs are not dead just because of that. */
+      const scope = ownerSession(view) || visibleSession();
       const tabs = browserTabs();
       for (const tab of tabs) {
         if (tab.tabId === keep) continue;
+        if (!tab.sessionId || tab.sessionId !== scope) continue;
         // A browser tab that still shows its start page title has no page in it; only
         // those are swept, so a tab with a loaded page is never closed behind the user.
         const chip = tabChip(tab.tabId);
-        const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        const label = chip ? String(chip.textContent || '').replace(/\\s+/g, ' ').trim() : '';
         if (label !== '浏览器' && label !== 'Browser') continue;
         if (right && tab.sessionId && typeof right.closeIn === 'function') {
           try { right.closeIn(tab.sessionId, tab.tabId); } catch {}
@@ -1145,7 +1150,8 @@ window.__ModuleLoader__.load({
         const saved = revealPanel;
         revealPanel = true;
         try { expandRightbar(); } catch { /* layout service unavailable */ }
-        const views = [...document.querySelectorAll('webview')];
+        const expandSession = visibleSession();
+        const views = [...document.querySelectorAll('webview')].filter((element) => !expandSession || ownerSession(element) === expandSession);
         const match = (target && views.find((element) => {
           try { return normalize(element.getURL && element.getURL()) === target; } catch { return false; }
         })) || views.find((element) => {
@@ -1209,21 +1215,26 @@ window.__ModuleLoader__.load({
         };
       }
       if (op === 'sweep') {
-        // Close empty browser tabs that earlier bootstraps left behind; keep the tab that
-        // currently owns a guest page.
+        /* Same containment as sweep-stale: only blank start-page tabs of the visible
+           session; other sessions intentionally have no mounted webview. */
         const right = sidebarRight();
+        const scope = String((args && args.session) || '') || visibleSession();
         const views = [...document.querySelectorAll('webview')];
         const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
-        let closed = 0;
-        for (const tab of browserTabs()) {
-          if (keep.has(tab.tabId)) continue;
+        const isStaleTab = (tab) => {
+          if (!tab || !tab.sessionId || tab.sessionId !== scope) return false;
+          if (keep.has(tab.tabId)) return false;
           const chip = tabChip(tab.tabId);
-          const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
-          if (label !== '浏览器' && label !== 'Browser') continue;
+          const label = chip ? String(chip.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+          return label === '浏览器' || label === 'Browser';
+        };
+        let closed = 0;
+        for (const tab of browserTabs().filter(isStaleTab)) {
           if (right && tab.sessionId && typeof right.closeIn === 'function') {
             try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
-          } else if (chip) {
-            const closer = chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]');
+          } else {
+            const chip = tabChip(tab.tabId);
+            const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
             if (closer) { try { closer.click(); closed += 1; } catch {} }
           }
           await new Promise((resolve) => setTimeout(resolve, 60));
@@ -1236,7 +1247,8 @@ window.__ModuleLoader__.load({
         const wanted = String((args && args.url) || '');
         const normalize = (value) => String(value || '').split('#')[0].replace(/\/+$/, '').toLowerCase();
         const target = normalize(wanted);
-        const views = [...document.querySelectorAll('webview')];
+        const focusSession = visibleSession();
+        const views = [...document.querySelectorAll('webview')].filter((element) => !focusSession || ownerSession(element) === focusSession);
         const view = views.find((element) => {
           let url = '';
           try { url = element.getURL ? String(element.getURL() || '') : ''; } catch {}
