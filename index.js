@@ -1514,7 +1514,26 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => {
     const disposers = [];
     for (const tool of buildTools(browser)) {
-      disposers.push(ctx.tools.register(tool));
+      const execute = tool.execute;
+      disposers.push(ctx.tools.register({
+        ...tool,
+        execute: async (args) => {
+          /* Tag the call with the session that invoked it: the side panel belongs to
+             one session, and a tool call from another must not drive it. */
+          let sessionId = '';
+          try {
+            const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+            const initiator = agents && typeof agents.currentInitiator === 'function' ? agents.currentInitiator() : null;
+            sessionId = String((initiator && initiator.id) || '');
+          } catch {}
+          try { browser.setCallerSession?.(sessionId); } catch {}
+          try {
+            const denied = typeof browser.guardSession === 'function' ? await browser.guardSession() : null;
+            if (denied) return denied;
+          } catch {}
+          return execute(args);
+        },
+      }));
     }
     for (const [routePath, handler] of Object.entries(handlers)) {
       disposers.push(ctx.webServer.register({ kind: 'exact', path: routePath, handler }));

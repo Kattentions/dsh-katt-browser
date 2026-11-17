@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.22';
+    const VERSION = '0.9.23';
 
 
     const ORIGINS = [''];
@@ -49,6 +49,40 @@ window.__ModuleLoader__.load({
         return (typeof pluginCtx.get === 'function' && pluginCtx.get('sidebarRight')) || null;
       } catch { return null; }
     };
+
+    /**
+     * The right sidebar is per-session. This attribute is the shell's own marker for
+     * "the session whose right pane is mounted right now"; tool calls carry the
+     * session that invoked them, and a mismatch means the panel belongs to somebody
+     * else's conversation. Never drive it in that case.
+     */
+    function visibleSession() {
+      try {
+        /* Several sessions' right seats can be mounted at once; the hidden ones are
+           display:none / zero-sized. The one the user is actually looking at is the
+           displayed seat, so pick that instead of the first node in DOM order. */
+        const nodes = [...document.querySelectorAll('[data-sidebar-right-session]')];
+        let best = '';
+        let bestArea = 0;
+        for (const node of nodes) {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          if (style.display === 'none' || style.visibility === 'hidden') continue;
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          const area = rect.width * rect.height;
+          if (area > bestArea) { bestArea = area; best = String(node.getAttribute('data-sidebar-right-session') || ''); }
+        }
+        return best;
+      } catch { return ''; }
+    }
+
+    /** Session that owns the panel a given webview belongs to. */
+    function ownerSession(view) {
+      try {
+        const host = view && view.closest ? view.closest('[data-sidebar-right-session]') : null;
+        return host ? String(host.getAttribute('data-sidebar-right-session') || '') : '';
+      } catch { return ''; }
+    }
 
     const layout = () => {
       try {
@@ -551,6 +585,21 @@ window.__ModuleLoader__.load({
     }
 
     async function runCommand(op, args) {
+      /* A tool call from session A must not touch the panel showing session B: the
+         user is reading B, and the browser tab under it belongs to B. */
+      const callerSession = args && typeof args.session === 'string' ? args.session : '';
+      /* What would be driven: the mounted browser tab's own session, or (when there is
+         no tab yet) the right pane the user is looking at. */
+      const driven = document.querySelector('webview');
+      const currentSession = ownerSession(driven) || visibleSession();
+      if (callerSession !== '' && currentSession !== '' && callerSession !== currentSession) {
+        return {
+          error: 'inactive-session',
+          requestedSession: callerSession,
+          visibleSession: currentSession,
+          hint: '侧栏浏览器现在属于另一个会话，工具没有动它。切回发起工具的这个会话来用，或者把 katt-browser 的 driver 换成 headless。',
+        };
+      }
       if (op === 'open' || op === 'navigate') {
         const url = String((args && args.url) || '');
         const target = /^(https?:|about:|data:|file:)/i.test(url) ? url : 'https://' + url;
@@ -563,6 +612,23 @@ window.__ModuleLoader__.load({
           const right = sidebarRight();
           if (right && typeof right.openTab === 'function') {
             try { right.openTab('browser', { params: { url: target } }); } catch (error) { uiDrove = 'openTab: ' + String(error && error.message ? error.message : error); }
+            /* The panel service opens a tab in whichever session is active; if that
+               turned out to be a different conversation, close it instead of leaving
+               a browser tab in front of the user. */
+            if (callerSession) {
+              const opened = browserTabs().filter((tab) => tab.sessionId);
+              if (opened.length > 0 && !opened.some((tab) => tab.sessionId === callerSession)) {
+                for (const tab of opened) {
+                  try { right.closeIn(tab.sessionId, tab.tabId); } catch {}
+                }
+                return {
+                  error: 'inactive-session',
+                  requestedSession: callerSession,
+                  visibleSession: visibleSession(),
+                  hint: '当前活动会话不是发起工具的这个会话，已关掉刚打开的浏览器标签页。切回这个会话再试。',
+                };
+              }
+            }
           }
           view = await waitForWebview(15000);
         }
@@ -990,6 +1056,10 @@ window.__ModuleLoader__.load({
         out.sidebarRight = Boolean(sidebarRight());
         out.layout = Boolean(layout());
         out.browserTabs = browserTabs().length;
+        out.visibleSession = visibleSession();
+        const firstView = document.querySelector('webview');
+        out.activeViewSession = ownerSession(firstView);
+        out.viewSessions = [...document.querySelectorAll('webview')].map(ownerSession);
       } catch {}
       try {
         // The shell assigns one non-persistent session partition per workspace; surface it so
