@@ -1,5 +1,13 @@
 # 变更记录
 
+## 0.9.60
+
+- 新增 `scripts/prepare-release.mjs`（`npm run prepare-release -- <版本号>`）：一次改完 package.json、client.js 的 VERSION、市场 index.json（版本 + commit 先写 PENDING），并拒绝降级。打包、打 tag、推远端仍然手动作业。
+- 开发目录和发布仓库都能跑：没有 index.json 的检出只改前两处。
+- 本版本自身就用它完成：两个检出各跑一次，0.9.59 → 0.9.60，随后 `check:release` 通过。
+- 格式统一：package.json / index.json 现在按 2 空格 JSON 写回，之前 PowerShell 序列化会带出多余空格和 4 空格缩进。
+
+
 ## 0.9.59
 
 - 新增 `scripts/check-release.mjs`（`npm run check:release`）：核对 `package.json`、`client.js` 里的 `VERSION`、市场 `index.json` 三处版本是否一致，并检查发布必需文件是否齐全。写错一处版本号会发布出「装的是 A、报告的是 B」的包，只能靠手工比对。

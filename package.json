@@ -1,66 +1,67 @@
 {
-    "name":  "dsh-katt-browser",
-    "version":  "0.9.59",
-    "type":  "module",
-    "description":  "DeepSeek Harness sidebar browser: structure-first page reading (AX tree / DOM / worker / network) plus multi-account cookie snapshots, driven over the Chrome DevTools Protocol.",
-    "license":  "MIT",
-    "author":  "Kattentions",
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/Kattentions/dsh-katt-browser.git"
-                   },
-    "homepage":  "https://github.com/Kattentions/dsh-katt-browser#readme",
-    "bugs":  {
-                 "url":  "https://github.com/Kattentions/dsh-katt-browser/issues"
-             },
-    "keywords":  [
-                     "dsh",
-                     "dsh-plugin",
-                     "deepseek-harness",
-                     "browser",
-                     "cdp",
-                     "chrome-devtools-protocol",
-                     "agent",
-                     "accessibility-tree"
-                 ],
-    "exports":  {
-                    ".":  "./index.js",
-                    "./client":  "./client.js",
-                    "./locale/*.json":  "./locale/*.json",
-                    "./icon":  "./icon.svg"
-                },
-    "files":  [
-                  "index.js",
-                  "client.js",
-                  "lib/*.js",
-                  "cordis.patch.yml",
-                  "locale/*.json",
-                  "icon.svg",
-                  "README.md",
-                  "CHANGELOG.md",
-                  "LICENSE",
-                  "README.zh.md",
-                  "docs/**",
-                  "scripts/**"
-              ],
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
-                           },
-                "client":  {
-                               "immediately":  true,
-                               "platform":  "web",
-                               "inject":  [
-                                              "@deepseek-ai/dsh-client-ui-conversation"
-                                          ]
-                           }
-            },
-    "scripts":  {
-                    "check":  "node scripts/check-contracts.mjs",
-                    "check:release":  "node scripts/check-release.mjs"
-                },
-    "engines":  {
-                    "node":  "\u003e=20"
-                },
-    "main":  "index.js"
+  "name": "dsh-katt-browser",
+  "version": "0.9.60",
+  "type": "module",
+  "description": "DeepSeek Harness sidebar browser: structure-first page reading (AX tree / DOM / worker / network) plus multi-account cookie snapshots, driven over the Chrome DevTools Protocol.",
+  "license": "MIT",
+  "author": "Kattentions",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kattentions/dsh-katt-browser.git"
+  },
+  "homepage": "https://github.com/Kattentions/dsh-katt-browser#readme",
+  "bugs": {
+    "url": "https://github.com/Kattentions/dsh-katt-browser/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "browser",
+    "cdp",
+    "chrome-devtools-protocol",
+    "agent",
+    "accessibility-tree"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.zh.md",
+    "docs/**",
+    "scripts/**"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "immediately": true,
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "scripts": {
+    "check": "node scripts/check-contracts.mjs",
+    "check:release": "node scripts/check-release.mjs",
+    "prepare-release": "node scripts/prepare-release.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "index.js"
 }
