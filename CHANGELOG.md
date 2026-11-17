@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.56
+
+- 修「重载后第一条浏览器命令超时」：插件或页面刚重载时客户端还没挂上命令轮询，第一次调用会超时，虽然没坏但体验上像卡住。现在 bridge 层对**只读命令**（probe/tabs/snapshot/page-diag/sweep/focus/expand/reveal/zoom）在超时后自动延迟 700ms 重试一次；点击、输入、打开、关闭等有副作用的命令不重试，避免双触发。
+- 实测：重载插件和页面后立刻调 `browser_tabs list`，第一次就成功返回 4 个标签页（带会话标题/工作区），不再出现超时。
+
 ## 0.9.55
 
 - `browser_tabs list` 的每个标签页多两个字段：`sessionTitle`、`workspace`（来自宿主 session store 的标题和 `header.cwd` 末段）。实测输出：tab156 → 临时 / 新建文件夹，tab57 → FEMA / FEMA，tab102 → NSGA / IE-NSGA-III；拿不到信息的会话留空，不影响原有字段。
