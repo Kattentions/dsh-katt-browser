@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.28';
+    const VERSION = '0.9.29';
 
 
     const ORIGINS = [''];
@@ -1348,7 +1348,7 @@ window.__ModuleLoader__.load({
       return fetch(apiBase() + OPEN_FILE_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
+        body: JSON.stringify({ path: filePath, session: visibleSession() }),
       })
         .then((response) => response.json().catch(() => null))
         .then((answer) => {

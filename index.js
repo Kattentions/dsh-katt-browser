@@ -1543,6 +1543,7 @@ export function apply(ctx, config = {}) {
       if (preflight(req, res)) return;
       try {
         const body = await readJsonBody(req);
+        browser.setCallerSession?.(String((body && body.session) || ''));
         const result = await openLocalFile(body && body.path, browser);
         sendJson(res, result && result.error ? 400 : 200, result, CORS_HEADERS);
       } catch (error) {
@@ -1573,7 +1574,8 @@ export function apply(ctx, config = {}) {
               /* Opening a page can land in the caller's own (hidden) browser tab via
                  openTabIn, so let browser_open through and let the client place it.
                  Everything else is refused while another session owns the panel. */
-              if (tool.name !== 'browser_open') return denied;
+              /* File opens use the same background placement path. */
+              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file') return denied;
             }
           } catch {}
           return execute(args);
