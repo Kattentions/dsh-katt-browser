@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.23';
+    const VERSION = '0.9.24';
 
 
     const ORIGINS = [''];
@@ -38,6 +38,9 @@ window.__ModuleLoader__.load({
       : 1;
 
     let pluginCtx = null;
+    /* Default page for a browser tab opened without a URL ("浏览器" command / Ctrl+T).
+       The Host sends the configured value back with every probe reply. */
+    let homeUrl = 'https://www.bing.com';
     let pageStateTimer = null;
     // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
     // viewing, and a tool call from another workspace must not open it in front of them.
@@ -550,6 +553,79 @@ window.__ModuleLoader__.load({
       } catch {
         return false;
       }
+    }
+
+    /**
+     * "浏览器" (Ctrl+T) opens an empty browser tab on the guide screen: no webview,
+     * just an address box. Fill the configured home in two ways: inject params.url
+     * into openTab calls, and as a fallback submit the guide tab's address box.
+     */
+    function installHomeTabDefault() {
+      try {
+        const right = pluginCtx && typeof pluginCtx.get === 'function' ? pluginCtx.get('sidebarRight') : null;
+        if (right && typeof right.openTab === 'function' && !right.__kattHomeDefault) {
+          right.__kattHomeDefault = true;
+          const original = right.openTab;
+          right.openTab = function (kind, options) {
+            if (kind !== 'browser') return original.call(this, kind, options);
+            const next = options && typeof options === 'object' ? { ...options } : {};
+            const params = next.params && typeof next.params === 'object' ? { ...next.params } : {};
+            if (typeof params.url !== 'string' || params.url.trim() === '') params.url = homeUrl;
+            next.params = params;
+            return original.call(this, kind, next);
+          };
+        }
+      } catch (error) { /* service not available yet */ }
+
+      if (typeof window === 'undefined' || window.__kattGuideTabHome) return;
+      window.__kattGuideTabHome = true;
+      const seen = new WeakSet();
+      const submit = (input, props) => {
+        try {
+          if (!input.isConnected) return;
+          input.focus();
+          if (props && typeof props.onChange === 'function') {
+            props.onChange({ target: { value: homeUrl }, currentTarget: { value: homeUrl } });
+          } else {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, homeUrl);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          setTimeout(() => {
+            try {
+              /* The address box submits through its own 前往 button; a synthetic Enter
+                 keypress does not reach that form in every shell build. */
+              const box = input.parentElement;
+              const go = box && box.querySelector('button.addressGo, button[aria-label="前往"], button[aria-label="Go"], button[type="submit"]');
+              if (go) { go.click(); return; }
+            } catch (error) { /* gone */ }
+            try {
+              if (props && typeof props.onKeyDown === 'function') {
+                props.onKeyDown({ key: 'Enter', code: 'Enter', preventDefault() {}, stopPropagation() {}, target: input, currentTarget: input, nativeEvent: { key: 'Enter' } });
+              } else {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+                input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+              }
+            } catch (error) { /* gone */ }
+          }, 120);
+        } catch (error) { /* gone */ }
+      };
+      const fill = (tab) => {
+        if (seen.has(tab)) return;
+        /* Only the guide state has no guest yet; a loaded tab already owns a webview. */
+        if (tab.querySelector('webview')) return;
+        const input = tab.querySelector('input');
+        if (!input) return;
+        const placeholder = String(input.getAttribute('placeholder') || '');
+        if (!/HTTP|地址|address/i.test(placeholder)) return;
+        seen.add(tab);
+        const propsKey = Object.keys(input).find((key) => key.indexOf('__reactProps') === 0);
+        const props = propsKey ? input[propsKey] : null;
+        setTimeout(() => submit(input, props), 800);
+      };
+      const scan = () => { for (const tab of document.querySelectorAll('[data-sidebar-right-tab]')) fill(tab); };
+      try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (error) { /* no observer */ }
+      scan();
     }
 
     async function ensurePanelTab() {
@@ -1090,7 +1166,11 @@ window.__ModuleLoader__.load({
       // Only post when something actually changed: a quiet panel used to cost a POST every
       // 2.5s for identical data, and every reply woke the Host for nothing.
       const probeKey = JSON.stringify([probe.hasWebview, probe.count, probe.diagnose]);
-      if (probeKey !== lastProbeKey) { lastProbeKey = probeKey; await post(PROBE_URL, probe); }
+      if (probeKey !== lastProbeKey) {
+        lastProbeKey = probeKey;
+        const reply = await post(PROBE_URL, probe);
+        if (reply && typeof reply.homeUrl === 'string' && reply.homeUrl !== '') homeUrl = reply.homeUrl;
+      }
       if (!view) return;
       const state = await stateOf(view);
       const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
@@ -1325,6 +1405,7 @@ window.__ModuleLoader__.load({
         installBrowserChrome();
         installFileOpenInterceptor();
         installFileOpenServiceInterceptor();
+        installHomeTabDefault();
         if (pageStateTimer) clearInterval(pageStateTimer);
         pageStateTimer = setInterval(heartbeat, 8000);
         ctx.effect(() => () => {
