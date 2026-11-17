@@ -1099,6 +1099,7 @@ function buildTools(browser) {
       execute: async () => {
         await browser.refreshProbe().catch(() => null);
         return {
+          callerSession: browser.callerSession || '',
           driver: browser.diagnostics || null,
           panel: browser.probe
             ? { ...browser.probe, state: browser.state }
@@ -1580,6 +1581,15 @@ export function apply(ctx, config = {}) {
             const initiator = agents && typeof agents.currentInitiator === 'function' ? agents.currentInitiator() : null;
             sessionId = String((initiator && initiator.id) || '');
           } catch {}
+          /* No attribution means no safe target: an unattributed call used to fall
+             back to "whatever the user is looking at", which is exactly the
+             cross-session hijack this plugin must never do. */
+          if (sessionId === '') {
+            return {
+              error: 'no-session',
+              hint: '无法确定这次工具调用属于哪个会话（initiator 缺失），为避免误驱动别人正在看的侧边栏浏览器，调用没有执行。',
+            };
+          }
           try { browser.setCallerSession?.(sessionId); } catch {}
           try {
             const denied = typeof browser.guardSession === 'function' ? await browser.guardSession() : null;
@@ -1590,7 +1600,7 @@ export function apply(ctx, config = {}) {
               /* File opens use the same background placement path. */
               /* Tab management is cross-session by design: listing and closing a
                  stray tab from another session is how the user cleans things up. */
-              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs') return denied;
+              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs' && tool.name !== 'browser_probe') return denied;
             }
           } catch {}
           return execute(args);

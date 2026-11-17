@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.32';
+    const VERSION = '0.9.33';
 
 
     const ORIGINS = [''];
@@ -743,22 +743,31 @@ window.__ModuleLoader__.load({
         return { ok: true, queued: Boolean(session && url), session };
       }
       const callerSession = args && typeof args.session === 'string' ? args.session : '';
-      /* A tool call from session A must not touch the panel showing session B. The
-         exception is opening a page: that can land in A's own (hidden) browser tab
-         with openTabIn, so the page loads in the background and A reveals it later. */
       const currentSession = visibleSession();
       const mismatched = callerSession !== '' && currentSession !== '' && callerSession !== currentSession;
-      if (mismatched) {
-        const ownView = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
-        const canBackgroundOpen = op === 'open' || op === 'navigate';
-        if (!ownView && !canBackgroundOpen) {
+      const callerOwnsView = callerSession !== '' && [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
+      const opensPage = op === 'open' || op === 'navigate';
+      if (mismatched && !callerOwnsView) {
+        if (opensPage) {
+          /* The page belongs to a session whose pane is not mounted here. Keep it
+             queued for that session instead of driving the panel the user is
+             looking at; the heartbeat replays it when they switch over. */
+          const requested = resolveAddress(String((args && args.url) || ''));
+          if (requested) pendingOpens.set(callerSession, requested);
           return {
             error: 'inactive-session',
+            queued: Boolean(requested),
             requestedSession: callerSession,
             visibleSession: currentSession,
-            hint: '侧栏浏览器现在属于另一个会话，工具没有动它。切回发起工具的这个会话来用，或者把 katt-browser 的 driver 换成 headless。',
+            hint: '这个会话的右侧栏现在不可见，页面已排队，切回该会话时会自动打开。',
           };
         }
+        return {
+          error: 'inactive-session',
+          requestedSession: callerSession,
+          visibleSession: currentSession,
+          hint: '侧栏浏览器现在属于另一个会话，工具没有动它。切回发起工具的这个会话来用，或者把 katt-browser 的 driver 换成 headless。',
+        };
       }
       if (op === 'open' || op === 'navigate') {
         const url = String((args && args.url) || '');
@@ -775,7 +784,9 @@ window.__ModuleLoader__.load({
             try { right.openTabIn(callerSession, 'browser', { params: { url: target }, revealIfOpened: false }); } catch (error) { /* fall through */ }
             view = await waitForWebview(15000, callerSession);
           }
-          if (!view && right && typeof right.openTab === 'function') {
+          /* Opening in the ACTIVE session is only acceptable when that is the caller's
+             own session; otherwise it would flash a tab in someone else's panel. */
+          if (!view && right && typeof right.openTab === 'function' && (!callerSession || callerSession === visibleSession())) {
             // Opening a tab with a url parameter makes the shipped panel create its
             // webview and navigate; only used when the session has no pane to target.
             const before = new Set(browserTabs().map((tab) => tab.tabId));
