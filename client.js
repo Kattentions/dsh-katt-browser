@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.25';
+    const VERSION = '0.9.26';
 
 
     const ORIGINS = [''];
@@ -38,6 +38,9 @@ window.__ModuleLoader__.load({
       : 1;
 
     let pluginCtx = null;
+    /* Opens requested while the caller session pane was not visible; replayed when
+       the user switches to that session. */
+    const pendingOpens = new Map();
     /* Default page for a browser tab opened without a URL ("浏览器" command / Ctrl+T).
        The Host sends the configured value back with every probe reply. */
     let homeUrl = 'https://www.bing.com';
@@ -143,9 +146,12 @@ window.__ModuleLoader__.load({
       return rect.width * rect.height;
     }
 
-    function findWebview() {
+    function findWebview(session) {
       try {
-        const all = [...document.querySelectorAll('webview')];
+        /* With a session in hand only that session's own browser tab is a valid
+           target: the other seats in this document belong to conversations the user
+           may be watching. */
+        const all = [...document.querySelectorAll('webview')].filter((element) => !session || ownerSession(element) === session);
         if (all.length === 0) return null;
         // Several browser tabs can be open; only the visible one can receive input.
         let best = null;
@@ -163,8 +169,8 @@ window.__ModuleLoader__.load({
 
     // A background tab keeps its <webview> in the DOM with a 0x0 box; activate its tab
     // chip first so the pane gets laid out and can receive input.
-    async function ensureVisibleWebview() {
-      let view = findWebview();
+    async function ensureVisibleWebview(session) {
+      let view = findWebview(session);
       if (!view) return null;
       if (measure(view) > 4) { installSameTabPolicy(view); return view; }
       const tabId = tabIdOf(view);
@@ -178,18 +184,18 @@ window.__ModuleLoader__.load({
         }
         if (tabId) await activateTab(tabId);
         await new Promise((resolve) => setTimeout(resolve, 400));
-        view = findWebview();
+        view = findWebview(session);
         if (view && measure(view) > 4) { installSameTabPolicy(view); return view; }
       }
       return view;
     }
 
-    async function waitForWebview(timeoutMs = 10000) {
+    async function waitForWebview(timeoutMs = 10000, session = '') {
       const deadline = Date.now() + timeoutMs;
-      let view = await ensureVisibleWebview();
+      let view = await ensureVisibleWebview(session);
       while (!view && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 150));
-        view = await ensureVisibleWebview();
+        view = await ensureVisibleWebview(session);
       }
       return view || null;
     }
@@ -725,6 +731,14 @@ window.__ModuleLoader__.load({
     }
 
     async function runCommand(op, args) {
+
+      /* Queue first: arrives when the caller's own pane is not the visible one. */
+      if (op === 'queueOpen') {
+        const session = args && typeof args.session === 'string' ? args.session : visibleSession();
+        const url = String((args && args.url) || '').trim();
+        if (session && url) pendingOpens.set(session, url);
+        return { ok: true, queued: Boolean(session && url), session };
+      }
       /* A tool call from session A must not touch the panel showing session B: the
          user is reading B, and the browser tab under it belongs to B. */
       const callerSession = args && typeof args.session === 'string' ? args.session : '';
@@ -744,7 +758,7 @@ window.__ModuleLoader__.load({
         const url = String((args && args.url) || '');
         const target = resolveAddress(url);
         await ensurePanelTab();
-        let view = await waitForWebview(1500);
+        let view = await waitForWebview(1500, callerSession);
         let uiDrove = null;
         if (!view) {
           // Opening a browser tab with a url parameter makes the shipped panel create its
@@ -770,12 +784,12 @@ window.__ModuleLoader__.load({
               }
             }
           }
-          view = await waitForWebview(15000);
+          view = await waitForWebview(15000, callerSession);
         }
         if (!view) {
           uiDrove = uiDrove || 'address-bar';
           await navigateViaPanelUi(target);
-          view = await waitForWebview(8000);
+          view = await waitForWebview(8000, callerSession);
         }
         if (!view) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页（bootstrap=' + uiDrove + '，诊断：' + JSON.stringify(diagnose()) + '）');
         installSameTabPolicy(view);
@@ -889,7 +903,7 @@ window.__ModuleLoader__.load({
           visibility: document.visibilityState,
         };
       }
-      const view = await waitForWebview(4000);
+      const view = await waitForWebview(4000, callerSession);
       if (!view) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页');
       if (op === 'state') return { state: await stateOf(view) };
       if (op === 'evaluate') return { value: await guestEval(view, String((args && args.code) || 'null')) };
@@ -981,7 +995,7 @@ window.__ModuleLoader__.load({
         const right = sidebarRight();
         if (!right || typeof right.openTab !== 'function') throw new Error('面板不支持 openTab');
         right.openTab('browser', { params: { url } });
-        const view = await waitForWebview(15000);
+        const view = await waitForWebview(15000, callerSession);
         return { ok: Boolean(view), url, src: view ? view.getAttribute('src') : null };
       }
       if (op === 'reveal') {
@@ -1215,7 +1229,22 @@ window.__ModuleLoader__.load({
 
     let lastProbeKey = '';
     let lastStateKey = '';
+    /** Replay one queued open when its own session becomes the visible one. */
+    function replayPendingOpen() {
+      try {
+        const session = visibleSession();
+        if (!session || pendingOpens.size === 0) return;
+        const url = pendingOpens.get(session);
+        if (!url) return;
+        const owned = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === session);
+        if (owned) { pendingOpens.delete(session); return; }
+        pendingOpens.delete(session);
+        runCommand('open', { url, session }).catch(() => {});
+      } catch (error) { /* retry next heartbeat */ }
+    }
+
     async function heartbeat() {
+      replayPendingOpen();
       if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
       // Self-heal: the heartbeat proves the Host is up, so keep the command poll attached.
       if (!pollStarted && !pollStopped) pollLoop();

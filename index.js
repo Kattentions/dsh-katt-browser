@@ -1314,7 +1314,7 @@ function buildTools(browser) {
 
 /* ---------------------------------------------------------------------- plugin */
 
-export const inject = ['tools', 'webServer'];
+export const inject = ['tools', 'webServer', 'agents'];
 export const name = 'katt-browser';
 
 export function apply(ctx, config = {}) {
@@ -1522,14 +1522,23 @@ export function apply(ctx, config = {}) {
              one session, and a tool call from another must not drive it. */
           let sessionId = '';
           try {
-            const agents = typeof ctx.get === 'function' ? ctx.get('agents') : null;
+            const agents = ctx.agents || (typeof ctx.get === 'function' ? ctx.get('agents') : null);
             const initiator = agents && typeof agents.currentInitiator === 'function' ? agents.currentInitiator() : null;
             sessionId = String((initiator && initiator.id) || '');
           } catch {}
           try { browser.setCallerSession?.(sessionId); } catch {}
           try {
             const denied = typeof browser.guardSession === 'function' ? await browser.guardSession() : null;
-            if (denied) return denied;
+            if (denied) {
+              /* The page belongs to the calling session, so keep the request for it
+                 instead of dropping it: the client opens it when the user switches
+                 back to that session. */
+              let queued = false;
+              if (tool.name === 'browser_open' && args && args.url && typeof browser.queueOpen === 'function') {
+                try { queued = await browser.queueOpen(String(args.url)); } catch (error) { queued = false; }
+              }
+              return queued ? { ...denied, queued: true, queuedUrl: String(args.url) } : denied;
+            }
           } catch {}
           return execute(args);
         },
