@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.54
+
+- 设置 → 浏览器列表现在显示「会话标题 · 工作区名 · 页面标题」，例如「临时 · 新建文件夹 · 浏览器标签页」「FEMA · FEMA · 浏览器标签页」「NSGA · IE-NSGA-III · 浏览器标签页」。宿主在 probe 回复里加了 `sessionMeta`（标题 + `session.header.cwd`），排队行也带同样的标签。
+- 这样跨工作区遗留的标签页一眼能看出属于哪个工作区的哪次对话，不用再对着 26 位 session id 猜。
+
 ## 0.9.53
 
 - 修一个状态残留：标签页关掉后，宿主还记着上一次的 `page-state`，`browser_probe` / `browser_doctor` 会显示一个已经不存在的页面（实测关闭 Example Domain 后仍报 `url: https://example.com/`）。现在没有挂载 webview 时客户端会清空状态（url/title 置空、viewport 归零），诊断里 `state.url` 变成空串。

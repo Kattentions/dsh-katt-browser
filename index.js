@@ -1703,6 +1703,35 @@ export function apply(ctx, config = {}) {
         } catch (error) { /* titles are optional */ }
         return titles;
       })(),
+      sessionMeta: (() => {
+        /* Titles plus the conversation's workspace, so the settings list can say
+           which workspace a leftover browser tab belongs to. */
+        const meta = {};
+        try {
+          const ids = new Set();
+          const diagnose = (body && body.diagnose) || {};
+          for (const id of Array.isArray(diagnose.viewSessions) ? diagnose.viewSessions : []) ids.add(String(id));
+          for (const state of Array.isArray(diagnose.viewStates) ? diagnose.viewStates : []) ids.add(String(state && state.sessionId));
+          for (const id of Array.isArray(body.tabSessions) ? body.tabSessions : []) ids.add(String(id));
+          for (const id of ids) {
+            if (!id || id === 'undefined') continue;
+            try {
+              const session = ctx.sessions && typeof ctx.sessions.get === 'function' ? ctx.sessions.get(id) : undefined;
+              const header = session && session.header ? session.header : {};
+              const cwd = typeof header.cwd === 'string' ? header.cwd : '';
+              let title = '';
+              try {
+                const titlesService = typeof ctx.get === 'function' ? ctx.get('sessionTitle') : null;
+                const snapshot = session && titlesService && typeof titlesService.get === 'function' ? titlesService.get(session) : undefined;
+                title = typeof snapshot === 'string' ? snapshot : snapshot && (snapshot.title || snapshot.text || snapshot.label) || '';
+              } catch (error) { title = ''; }
+              if (!title && !cwd) continue;
+              meta[id] = { title: String(title || '').trim(), cwd };
+            } catch (error) { /* meta is optional */ }
+          }
+        } catch (error) { /* meta is optional */ }
+        return meta;
+      })(),
       headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
       restoreLastPage: config.restoreLastPage !== false,
       lastPages: config.restoreLastPage === false ? {} : Object.fromEntries(sessionPages),
