@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.9.59
+
+- 新增 `scripts/check-release.mjs`（`npm run check:release`）：核对 `package.json`、`client.js` 里的 `VERSION`、市场 `index.json` 三处版本是否一致，并检查发布必需文件是否齐全。写错一处版本号会发布出「装的是 A、报告的是 B」的包，只能靠手工比对。
+- 脚本区分两种检出：发布仓库（有 `index.json`）跑完整检查；开发目录没有 `index.json` 时只查 package/client 版本并打印说明。
+- 负向验证：临时造一个 package 9.9.9 / index 0.4.12 的目录，脚本按预期报出「index.json lists 0.4.12, package.json is 9.9.9」并退出 1。
+
 ## 0.9.58
 
 - `package.json` 补 `main: index.js` 和 `engines.node >= 20`：插件宿主侧用到全局 `fetch`/`WebSocket`，低于 Node 20 装上也跑不起来，现在至少能在安装阶段提示。
