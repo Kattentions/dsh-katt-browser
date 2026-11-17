@@ -28,6 +28,7 @@ export const Config = z.object({
   autoReveal: z.boolean().default(true).description('面板收起时，第一次点击/输入自动展开一次（默认开；false = 只返回提示）'),
   instrument: z.boolean().default(true).description('是否注入页面插桩（worker/fetch/XHR/WebSocket）；重页面可关掉以减少开销'),
   cdpIdleDetachMs: z.natural().default(45000).description('空闲多少毫秒后断开 CDP（默认 45000；0 = 一直保持连接）。断开后下次操作会自动重连，避免长时间附着影响 Chromium 渲染节流'),
+  homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
 });
 
 const EDGE_CANDIDATES = [
@@ -964,15 +965,16 @@ function buildTools(browser) {
   return [
     {
       name: 'browser_open',
-      description: '在共享浏览器里打开一个网址（用户侧边面板会同步显示并可以继续手动操作）。',
+      description: '在共享浏览器里打开一个网址（用户侧边面板会同步显示并可以继续手动操作）。不传 url 时打开默认首页（默认 Bing，配置项 homeUrl）。',
       parameters: schema({
-        url: { type: 'string', description: '要打开的网址' },
+        url: { type: 'string', description: '要打开的网址；留空则打开默认首页（Bing）' },
         waitFor: { type: 'string', description: '等这个 CSS 选择器出现再返回（SPA 水合用，最多等 15 秒）' },
         waitMs: { type: 'number', description: '打开后额外等待的毫秒数（最多 30 秒）' },
-      }, ['url']),
+      }),
       output,
       execute: async (args) => {
-        const state = await browser.navigate(String(args.url), { waitFor: args.waitFor, waitMs: args.waitMs });
+        const wanted = args && args.url ? String(args.url).trim() : '';
+        const state = await browser.navigate(wanted, { waitFor: args && args.waitFor, waitMs: args && args.waitMs });
         return { ...state, barriers: await browser.barriers?.().catch(() => null) };
       },
     },
