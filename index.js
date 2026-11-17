@@ -32,7 +32,9 @@ export const Config = z.object({
   homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
   profileRetentionDays: z.natural().default(14).description('headless 每会话 profile 保留天数；启动时清理更旧的目录（0 = 不清理）'),
   restoreLastPage: z.boolean().default(true).description('每个会话记住最后打开的页面；新开浏览器标签时恢复它而不是永远回到首页'),
-  suspendOnLeave: z.boolean().default(true).description('切走某个会话时，如果它的浏览器空闲就关闭以省内存；切回来恢复标签和滚动位置（后台任务中的会话不关）'),
+  suspendOnLeave: z.boolean().default(true).description('切走某个会话时，如果它的浏览器空闲就关闭以省内存；切回来恢复标签和滚动位置（后台任务中的会话不关；后台会话要用浏览器时会自动恢复）'),
+  showSettings: z.boolean().default(false).description('是否在设置里显示「浏览器」分区（默认隐藏；开启后可以手动清理跨会话标签）'),
+  backgroundFallback: z.boolean().default(true).description('webview 驱动下，后台会话要用浏览器时自动启用该会话自己的无头浏览器（不需要用户切过去）'),
   maxHeadlessBrowsers: z.natural().default(3).description('headless 驱动同时保留的浏览器实例上限；超出按最久未用淘汰（多会话各一份 profile）'),
 });
 
@@ -1512,6 +1514,11 @@ export function apply(ctx, config = {}) {
   const webview = pageWebview ? new HybridSession(config, pageWebview) : null;
   const bridge = pageWebview ? pageWebview.bridge : null;
   const browser = headless || webview;
+  /* Webview driver: a session whose pane is not mounted cannot drive its panel, so
+     background tool calls get that session's own headless browser instead. */
+  const backgroundHeadless = driver === 'webview' && config.backgroundFallback !== false
+    ? createPooledHeadlessBrowser(config)
+    : null;
   /* The tool layer reuses the same page memory for browser_open without a url. */
 
   /* Each session remembers its last page so reopening the browser (or a new tab)
@@ -1769,6 +1776,7 @@ export function apply(ctx, config = {}) {
       headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
       restoreLastPage: config.restoreLastPage !== false,
       suspendOnLeave: config.suspendOnLeave !== false,
+      showSettings: config.showSettings === true,
       lastPages: config.restoreLastPage === false ? {} : Object.fromEntries(sessionPages),
     }, CORS_HEADERS);
       } catch (error) {
@@ -1790,6 +1798,19 @@ export function apply(ctx, config = {}) {
 
   ctx.effect(() => {
     const disposers = [];
+    const backgroundTools = new Map();
+    if (backgroundHeadless) {
+      for (const tool of buildTools(backgroundHeadless)) backgroundTools.set(tool.name, tool.execute);
+    }
+    /* Cross-session management tools always talk to the panel client. */
+    const panelOnlyTools = new Set(['browser_tabs', 'browser_probe', 'browser_doctor', 'browser_close', 'browser_serve']);
+    const visibleSessionId = () => {
+      try {
+        const probe = browser.probe || {};
+        const diagnose = probe.diagnose || {};
+        return String(diagnose.visibleSession || '');
+      } catch (error) { return ''; }
+    };
     for (const tool of buildTools(browser)) {
       const execute = tool.execute;
       disposers.push(ctx.tools.register({
@@ -1813,6 +1834,25 @@ export function apply(ctx, config = {}) {
             };
           }
           try { browser.setCallerSession?.(sessionId); } catch {}
+          /* Background session: run the call on its own headless browser instead of
+             refusing or queueing a page the user is not looking at. */
+          try {
+            const visible = visibleSessionId();
+            const backgroundExecute = backgroundTools.get(tool.name);
+            if (backgroundExecute && visible !== '' && sessionId !== visible && !panelOnlyTools.has(tool.name)) {
+              try { backgroundHeadless.setCallerSession?.(sessionId); } catch {}
+              const result = await backgroundExecute(args);
+              try {
+                const url = (result && result.state && typeof result.state.url === 'string' && result.state.url)
+                  || (result && typeof result.url === 'string' ? result.url : '');
+                if (url !== '') rememberPage(sessionId, url);
+              } catch { /* page memory is best effort */ }
+              const payload = result && typeof result === 'object' ? result : { result };
+              return { ...payload, background: true, driver: 'headless' };
+            }
+          } catch (error) {
+            /* Fall through to the panel path: it will queue or refuse with a clear message. */
+          }
           try {
             const denied = typeof browser.guardSession === 'function' ? await browser.guardSession() : null;
             if (denied) {
@@ -1843,6 +1883,7 @@ export function apply(ctx, config = {}) {
       for (const dispose of disposers) { try { dispose(); } catch {} }
       try { stopAllServe(); } catch {}
       browser.dispose();
+      try { backgroundHeadless && backgroundHeadless.dispose(); } catch (error) { /* already gone */ }
     };
   });
 }

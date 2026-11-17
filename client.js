@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.68';
+    const VERSION = '0.9.69';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -94,6 +94,7 @@ window.__ModuleLoader__.load({
     const sessionBusy = new Map();
     const suspendLog = [];
     let suspendEnabled = true;
+    let showSettings = false;
     let lastVisibleSessionSeen = '';
     const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -253,6 +254,78 @@ window.__ModuleLoader__.load({
     }
 
     loadSuspendedSnapshots();
+
+    /* Idle timers for sessions whose browser was resumed in the background: once
+       the tool call finished and the session is still hidden, close it again. */
+    const resumeTimers = new Map();
+    const resumeLog = [];
+
+    function clearResumeTimer(session) {
+      const timer = resumeTimers.get(session);
+      if (timer) { clearTimeout(timer); resumeTimers.delete(session); }
+    }
+
+    function scheduleIdleSuspend(session) {
+      if (!session) return;
+      clearResumeTimer(session);
+      if (!suspendEnabled) return;
+      const timer = setTimeout(() => {
+        resumeTimers.delete(session);
+        try {
+          if (visibleSession() === session) return;
+          if (isSessionBusy(session) || pendingOpens.has(session)) return;
+          suspendSession(session).then((outcome) => {
+            resumeLog.push({ session, at: Date.now(), action: 'idle-suspend', outcome });
+            while (resumeLog.length > 10) resumeLog.shift();
+          }).catch(() => {});
+        } catch (error) { /* next switch handles it */ }
+      }, 25000);
+      resumeTimers.set(session, timer);
+    }
+
+    async function waitForAnyView(session, timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const view = [...document.querySelectorAll('webview')].find((element) => ownerSession(element) === session);
+        if (view) return view;
+        await sleepMs(120);
+      }
+      return null;
+    }
+
+    /**
+     * Bring a hidden session's browser back up so a tool call from that session can
+     * use it: reopen its suspended tabs inside its own sidebar pane (never the one
+     * the user is watching) and wait for a mounted guest.
+     */
+    async function resumeSessionInBackground(session) {
+      if (!session) return false;
+      if (visibleSession() === session) return false;
+      const right = sidebarRight();
+      if (!right || typeof right.openTabIn !== 'function') return false;
+      if ([...document.querySelectorAll('webview')].some((element) => ownerSession(element) === session)) return true;
+      const snapshot = sessionSnapshots.get(session);
+      const urls = [];
+      if (snapshot) for (const item of snapshot.tabs) if (item.url && urls.indexOf(item.url) < 0) urls.push(item.url);
+      if (urls.length === 0) {
+        const fallback = String(lastPages[session] || '');
+        if (fallback !== '') urls.push(fallback);
+      }
+      if (urls.length === 0) urls.push(homeUrl);
+      clearResumeTimer(session);
+      for (const url of urls.slice(0, 3)) {
+        try { right.openTabIn(session, 'browser', { params: { url }, revealIfOpened: false }); } catch (error) { /* next */ }
+        await sleepMs(350);
+      }
+      const view = await waitForAnyView(session, 9000);
+      if (!view) return false;
+      /* Only consume the snapshot once the browser is actually up. */
+      sessionSnapshots.delete(session);
+      saveSuspendedSnapshots();
+      resumeLog.push({ session, at: Date.now(), action: 'resume', tabs: urls.length });
+      while (resumeLog.length > 10) resumeLog.shift();
+      return true;
+    }
 
     const sidebarRight = () => {
       try {
@@ -988,7 +1061,10 @@ window.__ModuleLoader__.load({
       try {
         return await runCommandInner(op, args);
       } finally {
-        if (busySession !== '') markSessionBusy(busySession, -1);
+        if (busySession !== '') {
+          markSessionBusy(busySession, -1);
+          try { if (visibleSession() !== busySession) scheduleIdleSuspend(busySession); } catch (error) { /* best effort */ }
+        }
       }
     }
 
@@ -1030,11 +1106,16 @@ window.__ModuleLoader__.load({
       const callerSession = args && typeof args.session === 'string' ? args.session : '';
       const currentSession = visibleSession();
       const mismatched = callerSession !== '' && currentSession !== '' && callerSession !== currentSession;
-      const callerOwnsView = callerSession !== '' && [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
+      let callerOwnsView = callerSession !== '' && [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
       const opensPage = op === 'open' || op === 'navigate';
       /* Tab management and diagnostics are cross-session by design; every op that
          drives a page still needs the caller's own mounted tab. */
       const crossSessionOps = ['tabs', 'tab-close', 'sweep', 'probe', 'page-state'];
+      /* The caller's browser may be suspended or unmounted because the user is
+         elsewhere. Bring it up inside its own pane instead of failing/queueing. */
+      if (mismatched && !callerOwnsView && !crossSessionOps.includes(op)) {
+        try { if (await resumeSessionInBackground(callerSession)) callerOwnsView = true; } catch (error) { /* fall through */ }
+      }
       if (mismatched && !callerOwnsView && !crossSessionOps.includes(op)) {
         if (opensPage) {
           /* The page belongs to a session whose pane is not mounted here. Keep it
@@ -1536,7 +1617,7 @@ window.__ModuleLoader__.load({
 
     function diagnose() {
       // Compact on purpose: this rides along with browser_state/browser_probe results.
-      const out = { version: VERSION, generation: bridgeGeneration, suspend: { enabled: suspendEnabled, suspended: sessionSnapshots.size, busy: sessionBusy.size, lastSwitch: suspendLog.slice(-3) } };
+      const out = { version: VERSION, generation: bridgeGeneration, suspend: { enabled: suspendEnabled, suspended: sessionSnapshots.size, busy: sessionBusy.size, resumed: resumeLog.length, idleTimers: resumeTimers.size, lastSwitch: suspendLog.slice(-3), resumeLog: resumeLog.slice(-3) } };
       try {
         const views = [...document.querySelectorAll('webview')];
         out.webviews = views.length;
@@ -1660,6 +1741,10 @@ window.__ModuleLoader__.load({
       if (reply && Number(reply.headlessInstances) >= 0) headlessInstances = Math.floor(Number(reply.headlessInstances));
       if (reply && typeof reply.restoreLastPage === 'boolean') restoreLastPage = reply.restoreLastPage;
       if (reply && typeof reply.suspendOnLeave === 'boolean') suspendEnabled = reply.suspendOnLeave;
+      if (reply && typeof reply.showSettings === 'boolean') {
+        showSettings = reply.showSettings;
+        try { if (showSettings && typeof window.__kattSettingsRegister === 'function') window.__kattSettingsRegister(); } catch (error) { /* optional */ }
+      }
       if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
       if (reply && reply.sessionTitles && typeof reply.sessionTitles === 'object') sessionTitles = reply.sessionTitles;
       if (reply && reply.sessionMeta && typeof reply.sessionMeta === 'object') sessionMeta = reply.sessionMeta;
@@ -1992,13 +2077,22 @@ window.__ModuleLoader__.load({
     return {
       inject: ['sidebarRight', 'layout', 'sessions', 'slots'],
       apply(ctx) {
+        /* The browser settings section is hidden by default: the per-session panel
+           manages itself now. Set showSettings: true to bring it back. */
         try {
           if (React && ctx.slots && typeof ctx.slots.inject === 'function') {
             ctx.slots.inject('settings.section', () => {
               const sectionDisposers = [];
-              try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section', id: 'katt-browser', order: 14, label: () => '浏览器' }, BrowserSettingsSection)); } catch (error) { /* older shell */ }
-              try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section.icon', key: 'katt-browser' }, BrowserSettingsIcon)); } catch (error) { /* icon optional */ }
+              const register = () => {
+                if (window.__kattSettingsRegistered || !showSettings) return;
+                window.__kattSettingsRegistered = true;
+                try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section', id: 'katt-browser', order: 14, label: () => '浏览器' }, BrowserSettingsSection)); } catch (error) { /* older shell */ }
+                try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section.icon', key: 'katt-browser' }, BrowserSettingsIcon)); } catch (error) { /* icon optional */ }
+              };
+              register();
+              window.__kattSettingsRegister = register;
               return () => {
+                window.__kattSettingsRegistered = false;
                 for (const dispose of sectionDisposers) { try { dispose(); } catch (error) { /* gone */ } }
               };
             });
