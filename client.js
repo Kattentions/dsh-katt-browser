@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.51';
+    const VERSION = '0.9.52';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -1697,7 +1697,7 @@ window.__ModuleLoader__.load({
               h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : '') + (row.remembered ? '（上次查看）' : ''))
             ),
             row.url ? h('button', {
-              onClick: () => { try { const right = sidebarRight(); if (right && typeof right.openTab === 'function' && row.url) right.openTab('browser', { params: { url: row.url } }); } catch (error) { /* gone */ } window.setTimeout(refresh, 200); },
+              onClick: () => { runCommand('open-here', { url: row.url }).catch(() => {}); window.setTimeout(refresh, 600); },
               style: buttonStyle,
               title: row.url || '',
             }, '在这里打开') : null,
@@ -1712,7 +1712,7 @@ window.__ModuleLoader__.load({
               h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
                 h('span', { style: { fontWeight: 500 } }, entry.url || '（无网址）'),
                 h('span', { style: metaStyle }, entry.sessionId.slice(0, 26))),
-              entry.url ? h('button', { onClick: () => { try { const right = sidebarRight(); if (right && typeof right.openTab === 'function') right.openTab('browser', { params: { url: entry.url } }); pendingOpens.delete(entry.sessionId); } catch (error) { /* gone */ } window.setTimeout(refresh, 200); }, style: buttonStyle }, '在这里打开') : null,
+              entry.url ? h('button', { onClick: () => { pendingOpens.delete(entry.sessionId); runCommand('open-here', { url: entry.url }).catch(() => {}); window.setTimeout(refresh, 600); }, style: buttonStyle }, '在这里打开') : null,
               h('button', { onClick: () => cancelQueued(entry.sessionId), style: buttonStyle }, '取消'))));
       return h('section',
         { style: { display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 720, padding: '8px 0', color: 'var(--dsw-alias-label-primary)' } },
