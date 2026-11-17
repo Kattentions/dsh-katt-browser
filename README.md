@@ -176,6 +176,10 @@ session that invoked them, and never navigate a page another session is showing.
 - Service Worker registration itself is not restorable from a snapshot (Cache Storage content is).
 - Sites that require a human (login walls, CAPTCHA, rate limits) surface a `barriers` hint; the user completes that step in the sidebar.
 
+## Development check
+
+`npm run check` compares every `browser.xxx()` call the tools make against the methods each driver implements (webview and headless) and fails on any gap. The headless driver stayed broken for weeks precisely because nobody had this: it implemented 25 methods while the tools called 39.
+
 ## License
 
 MIT

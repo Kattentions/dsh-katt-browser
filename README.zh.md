@@ -189,6 +189,10 @@ browser_cookies load name=work   -> storageRestored: true
 - Service Worker 注册本身无法从快照恢复（Cache Storage 内容可以）。
 - 需要人操作的站点（登录墙、验证码、限流）会返回 `barriers` 提示，由用户在侧栏完成那一步。
 
+## 开发自检
+
+工具与驱动之间有静态契约检查：`npm run check` 会扫出所有 `browser.xxx()` 调用，逐个驱动（webview / headless）对比实际实现的方法，缺一个就报错。headless 驱动之前坏了很久就是因为没有这个检查——它只实现了 25 个方法而工具调用 39 个。
+
 ## 许可
 
 MIT

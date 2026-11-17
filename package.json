@@ -1,6 +1,6 @@
 {
     "name":  "dsh-katt-browser",
-    "version":  "0.9.46",
+    "version":  "0.9.47",
     "type":  "module",
     "description":  "DeepSeek Harness sidebar browser: structure-first page reading (AX tree / DOM / worker / network) plus multi-account cookie snapshots, driven over the Chrome DevTools Protocol.",
     "license":  "MIT",
@@ -53,5 +53,8 @@
                                               "@deepseek-ai/dsh-client-ui-conversation"
                                           ]
                            }
-            }
+            },
+    "scripts":  {
+                    "check":  "node scripts/check-contracts.mjs"
+                }
 }
