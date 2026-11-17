@@ -1395,7 +1395,7 @@ function buildTools(browser) {
 
 /* ---------------------------------------------------------------------- plugin */
 
-export const inject = ['tools', 'webServer', 'agents'];
+export const inject = ['tools', 'webServer', 'agents', 'sessions'];
 export const name = 'katt-browser';
 
 /**
@@ -1680,6 +1680,29 @@ export function apply(ctx, config = {}) {
       homeUrl: (typeof config.homeUrl === 'string' && config.homeUrl.trim()) ? config.homeUrl.trim() : 'https://www.bing.com',
       driver: config.driver === 'headless' ? 'headless' : 'webview',
       maxHeadlessBrowsers: Number(config.maxHeadlessBrowsers) > 0 ? Math.floor(Number(config.maxHeadlessBrowsers)) : 3,
+      sessionTitles: (() => {
+        /* Let the settings page show human titles instead of raw ids. The client
+           cannot reach the Host session store, so map titles into the probe reply. */
+        const titles = {};
+        try {
+          const ids = new Set();
+          const diagnose = (body && body.diagnose) || {};
+          for (const id of Array.isArray(diagnose.viewSessions) ? diagnose.viewSessions : []) ids.add(String(id));
+          for (const id of Array.isArray(body.tabSessions) ? body.tabSessions : []) ids.add(String(id));
+          for (const state of Array.isArray(diagnose.viewStates) ? diagnose.viewStates : []) ids.add(String(state && state.sessionId));
+          for (const id of ids) {
+            if (!id || id === 'undefined') continue;
+            try {
+              const session = ctx.sessions && typeof ctx.sessions.get === 'function' ? ctx.sessions.get(id) : undefined;
+              const titlesService = typeof ctx.get === 'function' ? ctx.get('sessionTitle') : null;
+              const snapshot = session && titlesService && typeof titlesService.get === 'function' ? titlesService.get(session) : undefined;
+              const title = typeof snapshot === 'string' ? snapshot : snapshot && (snapshot.title || snapshot.text || snapshot.label);
+              if (typeof title === 'string' && title.trim() !== '') titles[id] = title.trim();
+            } catch (error) { /* title is optional */ }
+          }
+        } catch (error) { /* titles are optional */ }
+        return titles;
+      })(),
       headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
       restoreLastPage: config.restoreLastPage !== false,
       lastPages: config.restoreLastPage === false ? {} : Object.fromEntries(sessionPages),

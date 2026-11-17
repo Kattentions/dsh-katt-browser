@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.49';
+    const VERSION = '0.9.50';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
     let driverMode = 'webview';
     let restoreLastPage = true;
     let lastPages = {};
+    let sessionTitles = {};
     let maxHeadlessBrowsers = 3;
     let headlessInstances = 0;
     let pageStateTimer = null;
@@ -1380,7 +1381,7 @@ window.__ModuleLoader__.load({
       // Install the bridge-side helpers (same-tab policy + clipboard shim) even when no tool
       // call has attached CDP yet, so copy buttons work while the user browses on their own.
       if (view) installSameTabPolicy(view);
-      const probe = { at: Date.now(), panel: true, hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
+      const probe = { at: Date.now(), panel: true, hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), tabSessions: [...new Set(browserTabs().map((tab) => tab.sessionId).filter(Boolean))], v: VERSION };
       if (view) probe.capabilities = capabilities(view);
       // Only post when something actually changed: a quiet panel used to cost a POST every
       // 2.5s for identical data, and every reply woke the Host for nothing.
@@ -1400,6 +1401,7 @@ window.__ModuleLoader__.load({
       if (reply && Number(reply.headlessInstances) >= 0) headlessInstances = Math.floor(Number(reply.headlessInstances));
       if (reply && typeof reply.restoreLastPage === 'boolean') restoreLastPage = reply.restoreLastPage;
       if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
+      if (reply && reply.sessionTitles && typeof reply.sessionTitles === 'object') sessionTitles = reply.sessionTitles;
       }
       if (hidden || !view) return;
       const state = await stateOf(view);
@@ -1672,14 +1674,14 @@ window.__ModuleLoader__.load({
         ? h('p', { style: metaStyle }, '还没有打开过浏览器标签页。')
         : h('div', null, rows.map((row) => h('div', { key: row.sessionId + row.tabId, style: rowStyle },
             h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
-              h('span', { style: { fontWeight: 500 } }, (row.visible ? '当前 · ' : '') + (row.title || '浏览器标签页')),
+              h('span', { style: { fontWeight: 500 } }, (row.visible ? '当前 · ' : '') + (sessionTitles[row.sessionId] ? sessionTitles[row.sessionId] + ' · ' : '') + (row.title || '浏览器标签页')),
               h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : '') + (row.remembered ? '（上次查看）' : ''))
             ),
-            h('button', {
+            row.url ? h('button', {
               onClick: () => { try { const right = sidebarRight(); if (right && typeof right.openTab === 'function' && row.url) right.openTab('browser', { params: { url: row.url } }); } catch (error) { /* gone */ } window.setTimeout(refresh, 200); },
               style: buttonStyle,
               title: row.url || '',
-            }, '在这里打开'),
+            }, '在这里打开') : null,
             h('button', { onClick: () => closeTab(row.sessionId, row.tabId), style: buttonStyle }, '关闭')
           )));
       const queuedView = queued.length === 0
