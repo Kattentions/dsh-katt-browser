@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.38';
+    const VERSION = '0.9.39';
 
 
     const ORIGINS = [''];
@@ -44,6 +44,8 @@ window.__ModuleLoader__.load({
     /* Opens requested while the caller session pane was not visible; replayed when
        the user switches to that session. */
     const pendingOpens = new Map();
+    /* Recent replay attempts, for diagnosing the switch-back flow from the Host. */
+    const replayLog = [];
     /* Hidden tabs have no mounted webview, so the panel cannot report their URL/title.
        Remember what each tab last showed while it was mounted. */
     const tabMemory = new Map();
@@ -1114,7 +1116,19 @@ window.__ModuleLoader__.load({
             await new Promise((resolve) => setTimeout(resolve, 60));
           }
         }
-        return { visibleSession: visible, tabs: describe(), keep: [...keep], closed, remaining: browserTabs().length };
+        return {
+          visibleSession: visible,
+          tabs: describe(),
+          keep: [...keep],
+          closed,
+          remaining: browserTabs().length,
+          queued: [...pendingOpens.entries()].map(([sessionId, entry]) => ({
+            sessionId,
+            url: entry && typeof entry === 'object' ? String(entry.url || '') : String(entry || ''),
+            at: entry && typeof entry === 'object' ? Number(entry.at) || 0 : 0,
+          })),
+          replays: replayLog.slice(-10),
+        };
       }
       if (op === 'sweep') {
         // Close empty browser tabs that earlier bootstraps left behind; keep the tab that
@@ -1302,6 +1316,7 @@ window.__ModuleLoader__.load({
         const owned = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === session);
         if (owned) { pendingOpens.delete(session); return; }
         pendingOpens.delete(session);
+        try { replayLog.push({ session, url, at: Date.now() }); while (replayLog.length > 10) replayLog.shift(); } catch (error) { /* diagnostics */ }
         runCommand('open', { url, session }).catch(() => {});
       } catch (error) { /* retry next heartbeat */ }
     }
