@@ -14,6 +14,7 @@ import path from 'node:path';
 import { WebviewSession } from './lib/webview.js';
 import { HybridSession } from './lib/hybrid.js';
 import { listServe, startServe, startServeAuto, stopAllServe, stopServe } from './lib/serve.js';
+import { adaptHeadless } from './lib/headless-compat.js';
 import z from '@deepseek-ai/schemastery';
 
 /** Plugin configuration (declared so the DSH settings layer can validate it). */
@@ -815,10 +816,14 @@ class BrowserSession {
     return box;
   }
 
-  async clickRef(ref, clickCount = 1) {
+  async clickRef(ref, confirm = false) {
+    /* The tool layer's second argument is the confirm flag (hybrid contract), not a
+       click count: forwarding its boolean to CDP made every headless click fail with
+       "Invalid parameters". */
+    void confirm;
     const { x, y } = await this.#elementRect(ref);
-    await this.#mouse('mousePressed', x, y, clickCount);
-    await this.#mouse('mouseReleased', x, y, clickCount);
+    await this.#mouse('mousePressed', x, y, 1);
+    await this.#mouse('mouseReleased', x, y, 1);
     await new Promise((resolve) => setTimeout(resolve, 150));
     return { ok: true, ref: Number(ref), x, y };
   }
@@ -906,8 +911,18 @@ class BrowserSession {
   /* ---------------------------------------------------------------- input */
 
   async #mouse(type, x, y, clickCount = 0, button = 'left', buttonsMask = 0) {
+    /* CDP rejects a press without the matching buttons mask, and coordinates
+       outside the emulated viewport can wedge the input queue. */
+    const width = Number(this.state.viewport && this.state.viewport.width) || 1024;
+    const height = Number(this.state.viewport && this.state.viewport.height) || 720;
+    const mask = buttonsMask || (type === 'mousePressed' ? (button === 'left' ? 1 : 2) : 0);
     await this.send('Input.dispatchMouseEvent', {
-      type, x, y, button, buttons: buttonsMask, clickCount,
+      type,
+      x: Math.max(0, Math.min(width - 1, Number(x) || 0)),
+      y: Math.max(0, Math.min(height - 1, Number(y) || 0)),
+      button,
+      buttons: mask,
+      clickCount,
     }, this.sessionId);
   }
 
@@ -1132,15 +1147,16 @@ function buildTools(browser) {
         await browser.refreshProbe().catch(() => null);
         const probe = browser.probe || {};
         const diagnose = probe.diagnose || {};
+        const headless = Boolean(probe.headless) || (browser.diagnostics && browser.diagnostics.mode === 'headless');
         const visible = String(diagnose.visibleSession || '');
         const views = Array.isArray(diagnose.viewStates) ? diagnose.viewStates : [];
         add('attribution', caller !== '', caller === '' ? '拿不到发起会话 id，工具会被拒绝' : caller);
         add('client-connected', Boolean(probe.at), probe.at ? (probe.hasWebview ? 'webview 已挂载' : '客户端已连接，还没有浏览器标签页（正常，open 时会创建）') : '客户端还没连上：刷新 DSH 页面或检查插件是否加载');
-        add('visible-session-known', visible !== '', visible || '客户端没有上报可见会话（刷新页面后重试）');
+        add('visible-session-known', headless || visible !== '', headless ? '无头驱动没有「可见会话」概念' : (visible || '客户端没有上报可见会话（刷新页面后重试）'));
         const own = views.filter((view) => view.sessionId === caller);
         add('own-page', true, own.length ? '自己的标签页 ' + own.length + ' 个（' + (own[0].url || 'about:blank') + '）' : '当前会话没有自己的标签页：打开页面会走后台/排队，读页面需要这个会话自己的标签或 headless 驱动');
         const diagnostics = browser.diagnostics || {};
-        add('driver-mode', true, diagnostics.mode === 'cdp' ? 'CDP 直连' : 'bridge（面板不可见或未就绪时正常）');
+        add('driver-mode', true, diagnostics.mode === 'cdp' ? 'CDP 直连' : diagnostics.mode === 'headless' ? '无头浏览器（每会话独立实例）' : 'bridge（面板不可见或未就绪时正常）');
         let tabs = { tabs: [], queued: [], replays: [] };
         try { tabs = await browser.listTabs(false); } catch (error) {
           add('tabs-op', false, String(error && error.message ? error.message : error));
@@ -1424,7 +1440,7 @@ function createPooledHeadlessBrowser(config) {
         lastUsedAt.delete(oldest);
         try { victim.dispose(); } catch (error) { /* already gone */ }
       }
-      instance = new BrowserSession({ ...config, dataDir: path.join(baseDir, 'sessions', key) });
+      instance = adaptHeadless(new BrowserSession({ ...config, dataDir: path.join(baseDir, 'sessions', key) }), config);
       instances.set(key, instance);
     }
     lastUsedAt.set(key, Date.now());

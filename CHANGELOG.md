@@ -1,5 +1,17 @@
 # 变更记录
 
+## 0.9.44
+
+修好了长期没被测过的 headless 驱动——它之前只能做最初那几个 CDP 动作，工具一多就 `TypeError: browser.x is not a function`：
+
+- 新增 `lib/headless-compat.js` 兼容层：用 CDP 已有的能力补上 pageText / pageMarkdown / pageTables / waitFor / clickLocated / hoverAt / zoom / listTabs / barriers / refreshProbe / guardSession / consoleLogs / networkLogs / instrumentData / 诊断与历史清理等 24 个缺失方法；Cookie 快照、页面内下载、文件上传这些只有 webview 面板才有的能力返回明确的不支持提示，不再崩。
+- 修 `clickRef` 的参数契约错位：工具把「确认」布尔值当第二个参数传，headless 当成 `clickCount` 发给 CDP，结果是 `Invalid parameters`，headless 下所有点击都失败。现在按 hybrid 的契约处理。
+- 修 #mouse 的 CDP 参数：按下事件补 `buttons` 掩码、坐标裁到视口内，避免输入队列被无效事件卡死。
+- `browser_doctor` 支持 headless 模式（不再要求「可见会话」，驱动显示为无头浏览器）。
+- README 已知限制补 headless 的能力边界。
+
+实测（driver=headless）：browser_open → snapshot → text → evaluate → wait → click（跳转到 iana.org）→ tabs list → doctor(ok) → console/cookies 返回明确提示；切回 webview 后 doctor 恢复 bridge 模式，测试用的 8 个残留 Chromium 进程已清理。
+
 ## 0.9.43
 
 - 新增 `browser_doctor` 工具：一次检查多会话状态（发起会话归属、可见会话、自己有没有标签页、驱动模式、标签页数量、排队页、重放记录），出问题先跑它，返回 `verdict: ok|attention` 和逐项明细。它是只读诊断，跨会话也允许调用。

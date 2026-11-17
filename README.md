@@ -170,6 +170,7 @@ session that invoked them, and never navigate a page another session is showing.
 
 ## Known limits
 
+- **headless driver** supports core browsing (open, snapshot, text, tables, evaluate, click/type, wait, zoom) with one isolated instance per session; console logs, network history, cookie snapshots, in-page downloads, uploads and multi-tab management need the webview driver and return an explicit "not supported" result instead of throwing.
 - `file://` cannot be opened; use `browser_serve`.
 - Native downloads are blocked by the shell; use `browser_download`.
 - Service Worker registration itself is not restorable from a snapshot (Cache Storage content is).

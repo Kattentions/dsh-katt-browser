@@ -183,6 +183,7 @@ browser_cookies load name=work   -> storageRestored: true
 
 ## 已知限制
 
+- **headless 驱动**支持核心操作（打开、快照、正文、表格、执行 JS、点击/输入、等待、缩放）和每会话独立实例；console 日志、网络历史、Cookie 快照、页面内下载、文件上传、多标签管理需要 webview 驱动，headless 下会返回明确的「不支持」提示而不是报错。
 - `file://` 打不开，用 `browser_serve`。
 - 原生下载被壳禁用，用 `browser_download`。
 - Service Worker 注册本身无法从快照恢复（Cache Storage 内容可以）。
