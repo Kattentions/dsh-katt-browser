@@ -1238,10 +1238,10 @@ function buildTools(browser) {
     },
     {
       name: 'browser_tabs',
-      description: '管理右侧栏的浏览器标签页（跨会话）。action=list 列出全部标签页及所属 sessionId、URL、是否属于当前可见会话（closeExtras=true 顺手清理死标签）；switch 切换到 tabId 并绑定 CDP 目标；new 新建标签页并打开 url；close 关闭指定 tabId —— 别的会话里遗留的标签页也可以在这里清掉。',
+      description: '管理右侧栏的浏览器标签页（跨会话）。action=list 列出全部标签页及所属 sessionId、URL、是否属于当前可见会话（closeExtras=true 顺手清理死标签）；switch 切换到 tabId 并绑定 CDP 目标；new 新建标签页并打开 url；close 关闭指定 tabId；cancel-queued 取消排队页；open-here 把另一个标签页的 URL 在用户当前正在看的会话里打开（tabId 或 url）。',
       parameters: schema({
-        action: { type: 'string', enum: ['list', 'switch', 'new', 'close', 'cancel-queued'], description: '要执行的操作，默认 list' },
-        tabId: { type: 'string', description: 'switch/close 时必填，来自 list 结果' },
+        action: { type: 'string', enum: ['list', 'switch', 'new', 'close', 'cancel-queued', 'open-here'], description: '要执行的操作，默认 list' },
+        tabId: { type: 'string', description: 'switch/close/open-here 时使用，来自 list 结果' },
         url: { type: 'string', description: 'new 时要打开的网址' },
         closeExtras: { type: 'boolean', description: 'list 时顺手清理没有页面的多余标签' },
         session: { type: 'string', description: 'cancel-queued 时可指定要取消的会话；省略则清空整个排队' },
@@ -1249,6 +1249,12 @@ function buildTools(browser) {
       output,
       execute: async (args) => {
         const action = String((args && args.action) || 'list');
+        if (action === 'open-here') {
+          const tabId = String((args && args.tabId) || '');
+          const url = String((args && args.url) || '');
+          if (!tabId && !url) return { error: 'open-here 需要 tabId 或 url' };
+          return browser.openHere?.(tabId, url) || { error: '当前驱动不支持 open-here' };
+        }
         if (action === 'cancel-queued') {
           return browser.cancelQueued?.(args && args.session) || { error: '当前驱动不支持取消排队' };
         }

@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.48';
+    const VERSION = '0.9.49';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -783,6 +783,19 @@ window.__ModuleLoader__.load({
         if (target !== '') pendingOpens.delete(target);
         else pendingOpens.clear();
         return { ok: true, remaining: pendingOpens.size };
+      }
+      /* Open another tab's page in the current session's panel. */
+      if (op === 'open-here') {
+        const tabId = String((args && args.tabId) || '');
+        const tab = browserTabs().find((item) => item.tabId === tabId);
+        const memory = tabId ? tabMemory.get(tabId) : null;
+        const navigation = tab && tab.navigation && tab.navigation.params ? tab.navigation.params : {};
+        const url = String((args && args.url) || '') || (typeof navigation.url === 'string' ? navigation.url : '') || (memory && memory.url ? memory.url : '');
+        if (!url) return { error: '这个标签页没有可用的 URL（可能还没被看到过）' };
+        const right = sidebarRight();
+        if (!right || typeof right.openTab !== 'function') return { error: '面板不支持 openTab' };
+        right.openTab('browser', { params: { url } });
+        return { ok: true, tabId, url };
       }
       /* Queue first: arrives when the caller's own pane is not the visible one. */
       if (op === 'queueOpen') {
@@ -1662,6 +1675,11 @@ window.__ModuleLoader__.load({
               h('span', { style: { fontWeight: 500 } }, (row.visible ? '当前 · ' : '') + (row.title || '浏览器标签页')),
               h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : '') + (row.remembered ? '（上次查看）' : ''))
             ),
+            h('button', {
+              onClick: () => { try { const right = sidebarRight(); if (right && typeof right.openTab === 'function' && row.url) right.openTab('browser', { params: { url: row.url } }); } catch (error) { /* gone */ } window.setTimeout(refresh, 200); },
+              style: buttonStyle,
+              title: row.url || '',
+            }, '在这里打开'),
             h('button', { onClick: () => closeTab(row.sessionId, row.tabId), style: buttonStyle }, '关闭')
           )));
       const queuedView = queued.length === 0

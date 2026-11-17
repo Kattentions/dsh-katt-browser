@@ -123,7 +123,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 - `browser_open` / `back` / `forward` / `reload` with `waitFor` / `waitMs` for SPA hydration
 - `browser_click` (ref or coordinates), `browser_type`, `browser_press_key`, `browser_scroll`, `browser_hover`, `browser_upload`
 - `browser_zoom` — `in` / `out` / `reset` / `set` with a 0.25–5 factor (page zoom, layout reflows)
-- `browser_tabs` — list (with session ownership and queue) / switch / new / close / cancel-queued
+- `browser_tabs` — list (with session ownership and queue) / switch / new / close / cancel-queued / `open-here` (open another tab's URL in the session you are viewing)
 
 **Accounts and state**
 
@@ -165,7 +165,7 @@ The right column belongs to **each session separately**: tools only drive the ta
 session that invoked them, and never navigate a page another session is showing.
 
 - **Background opens queue up.** When the calling session's sidebar is not visible, the page is queued for that session (valid for 2 hours) and opens when you switch back; `browser_tabs` exposes the queue in its `queued` field.
-- **Settings → Browser** lists every session's tabs (title, URL, current session) and queued pages, with close/cancel buttons, plus driver and instance status.
+- **Settings → Browser** lists every session's tabs (title, URL, current session) and queued pages, with close/cancel buttons, plus driver and instance status. A tab with a known URL also gets an "Open here" button that brings that page into the panel of the session you are viewing.
 - **Per-session page memory**: closing the tab, pressing Ctrl+T or restarting the app returns that session to its last page instead of the home page. Turn off with `restoreLastPage: false`.
 - **headless driver**: one browser and profile per session (`dataDir/sessions/<sessionId>`); cookies, history and page state are never shared, and `maxHeadlessBrowsers` caps concurrency.
 - **Panel visibility**: tool calls never open or switch the sidebar on their own. Reading (snapshot, text, console, network, cookies) and navigation work with the panel collapsed; real mouse/keyboard input needs it open and returns a `panelHidden` hint instead of failing silently. Set `revealPanel: true` if you *want* tools to reveal it.

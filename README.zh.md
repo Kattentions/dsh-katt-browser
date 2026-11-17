@@ -122,7 +122,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 - `browser_open` / `back` / `forward` / `reload`，支持 `waitFor` / `waitMs` 等 SPA 水合
 - `browser_click`（ref 或坐标）、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_hover`、`browser_upload`
 - `browser_zoom` — 页面缩放：`in` / `out` / `reset` / `set`，0.25~5 倍
-- `browser_tabs` — 列表（含跨会话归属与排队）/ 切换 / 新建 / 关闭 / 取消排队
+- `browser_tabs` — 列表（含跨会话归属与排队）/ 切换 / 新建 / 关闭 / 取消排队 / `open-here`（把别的标签页的 URL 在你当前会话里打开）
 
 **账号与状态**
 
@@ -178,7 +178,7 @@ browser_cookies load name=work   -> storageRestored: true
 右侧栏属于**每个会话自己**：工具只驱动发起工具那个会话的标签页，不会把别的会话正在看的页面导航走。会话之间互不可见、互不覆盖。
 
 - **后台打开会排队**：发起工具时那个会话的右侧栏不可见，页面先排进该会话（2 小时内有效），切回该会话会自动打开；`browser_tabs` 的 `queued` 字段能看到排队明细。
-- **设置 → 浏览器**：列出所有会话的标签页（标题、URL、是否当前会话）和排队中的页面，可以直接关闭/取消；headless 模式下还显示实时实例数。
+- **设置 → 浏览器**：列出所有会话的标签页（标题、URL、是否当前会话）和排队中的页面，可以直接关闭/取消；有 URL 的标签页还能「在这里打开」，把别的会话看过的页面一键放到当前会话的面板里。headless 模式下显示实时实例数。
 - **每会话页面记忆**：关掉标签、Ctrl+T 新开、或应用重启后，浏览器回到该会话上次的页面，而不是永远回到首页；`restoreLastPage: false` 可关掉。
 - **headless 驱动**：每会话一个独立浏览器实例与 profile（`dataDir/sessions/<sessionId>`），Cookie、历史、页面状态互不共享；实例数受 `maxHeadlessBrowsers` 限制。
 - **面板可见性**：工具操作不会主动展开或切换右侧栏。面板收起时，读页面（快照/文本/console/网络/Cookie）和导航照常工作；真实鼠标/键盘输入需要面板展开，会返回 `panelHidden` 提示而不是静默失败。想让工具展开面板，把 `revealPanel` 设成 `true`。
