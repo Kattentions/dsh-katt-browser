@@ -51,7 +51,7 @@
       "versions": [
         {
           "version": "0.9.21",
-          "publishTimestamp": 1794895297,
+          "publishTimestamp": 1794895645,
           "source": {
             "type": "git",
             "url": "https://github.com/Kattentions/dsh-katt-browser.git",
@@ -86,12 +86,12 @@
       "category": "remote",
       "versions": [
         {
-          "version": "0.2.0",
-          "publishTimestamp": 1794836469,
+          "version": "0.2.1",
+          "publishTimestamp": 1794895645,
           "source": {
+            "type": "git",
             "url": "https://github.com/Kattentions/dsh-mobile-bridge.git",
-            "commit": "40c7447fd888c4c94a56b913d1621511ea006192",
-            "type": "git"
+            "commit": "26bcf2f8b05629a4859a0bd1da1758b5aaff857f"
           }
         }
       ]
