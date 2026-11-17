@@ -1184,14 +1184,18 @@ function buildTools(browser) {
       name: 'browser_tabs',
       description: '管理右侧栏的浏览器标签页（跨会话）。action=list 列出全部标签页及所属 sessionId、URL、是否属于当前可见会话（closeExtras=true 顺手清理死标签）；switch 切换到 tabId 并绑定 CDP 目标；new 新建标签页并打开 url；close 关闭指定 tabId —— 别的会话里遗留的标签页也可以在这里清掉。',
       parameters: schema({
-        action: { type: 'string', enum: ['list', 'switch', 'new', 'close'], description: '要执行的操作，默认 list' },
+        action: { type: 'string', enum: ['list', 'switch', 'new', 'close', 'cancel-queued'], description: '要执行的操作，默认 list' },
         tabId: { type: 'string', description: 'switch/close 时必填，来自 list 结果' },
         url: { type: 'string', description: 'new 时要打开的网址' },
         closeExtras: { type: 'boolean', description: 'list 时顺手清理没有页面的多余标签' },
+        session: { type: 'string', description: 'cancel-queued 时可指定要取消的会话；省略则清空整个排队' },
       }),
       output,
       execute: async (args) => {
         const action = String((args && args.action) || 'list');
+        if (action === 'cancel-queued') {
+          return browser.cancelQueued?.(args && args.session) || { error: '当前驱动不支持取消排队' };
+        }
         if (action === 'switch') {
           if (!args || !args.tabId) return { error: 'switch 需要 tabId' };
           return browser.tabSwitch(args.tabId);

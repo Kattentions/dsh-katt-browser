@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.41';
+    const VERSION = '0.9.42';
 
 
     const ORIGINS = [''];
@@ -773,6 +773,14 @@ window.__ModuleLoader__.load({
 
     async function runCommand(op, args) {
 
+      /* Drop a queued page: with a session id only that entry, without one the
+         whole queue. */
+      if (op === 'cancel-queued') {
+        const target = args && typeof args.session === 'string' ? args.session : '';
+        if (target !== '') pendingOpens.delete(target);
+        else pendingOpens.clear();
+        return { ok: true, remaining: pendingOpens.size };
+      }
       /* Queue first: arrives when the caller's own pane is not the visible one. */
       if (op === 'queueOpen') {
         const session = args && typeof args.session === 'string' ? args.session : visibleSession();

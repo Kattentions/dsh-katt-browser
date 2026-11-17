@@ -122,7 +122,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 - `browser_open` / `back` / `forward` / `reload`，支持 `waitFor` / `waitMs` 等 SPA 水合
 - `browser_click`（ref 或坐标）、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_hover`、`browser_upload`
 - `browser_zoom` — 页面缩放：`in` / `out` / `reset` / `set`，0.25~5 倍
-- `browser_tabs` — 列表 / 切换 / 新建 / 关闭
+- `browser_tabs` — 列表（含跨会话归属与排队）/ 切换 / 新建 / 关闭 / 取消排队
 
 **账号与状态**
 

@@ -123,7 +123,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
 - `browser_open` / `back` / `forward` / `reload` with `waitFor` / `waitMs` for SPA hydration
 - `browser_click` (ref or coordinates), `browser_type`, `browser_press_key`, `browser_scroll`, `browser_hover`, `browser_upload`
 - `browser_zoom` — `in` / `out` / `reset` / `set` with a 0.25–5 factor (page zoom, layout reflows)
-- `browser_tabs` — list / switch / new / close
+- `browser_tabs` — list (with session ownership and queue) / switch / new / close / cancel-queued
 
 **Accounts and state**
 

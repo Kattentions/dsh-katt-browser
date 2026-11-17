@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.42
+
+- `browser_tabs` 新增 `action: cancel-queued`：可以取消某个会话排队中的页面（传 `session`），或清空整个排队（不传）。返回剩余排队数。之前只能去设置页点「取消」。
+- README 的工具列表补上 `cancel-queued` / 跨会话归属说明。
+
 ## 0.9.41
 
 - 文档更新（不改行为）：README 中英双语补「多会话与多工作区」一节，说明右侧栏归属、后台排队与切回自动打开、设置页的标签/排队管理、每会话页面记忆、headless 的每会话 profile 与实例上限；配置表补齐 `homeUrl`、`dataDir`、`restoreLastPage`、`profileRetentionDays`、`maxHeadlessBrowsers`。
