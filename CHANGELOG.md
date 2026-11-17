@@ -1,5 +1,25 @@
 # 变更记录
 
+## 0.9.70
+
+- 方案 A 落地：面板 webview 和后台无头浏览器之间**按会话同步登录态**（不再各登各的）。
+  - 可见时每 1.5 秒检查一次，页面变化就抓一份 cookie（含 HttpOnly）+ localStorage/sessionStorage 存到 `~/.dsh/katt-browser/session-state/<会话>.json`；挂起前再抓一次。
+  - 后台无头导航前注入 cookie；打开目标页后恢复 localStorage 并 reload 一次；调用结束再抓回结果。
+  - 切回面板时把最新状态注入面板 guest，reload 一次。
+  - 实测双向：面板登录后 `katt_login=panel-token` / `katt_ls=from-panel` → 后台无头 `/who` 读到 `cookie=panel-token`、`ls=from-panel`；后台设置 `headless-token`/`from-headless` 后切回面板，`/who` 读到 `cookie=headless-token`、`ls=from-headless`。
+- 兼容：内置 Chromium 不认 `Network.setCookies`（复数），改用 `Network.setCookie` 逐条写，并且这些 Network 命令必须带 page sessionId。
+- 限制：IndexedDB / ServiceWorker / 磁盘缓存仍不同步（登录态、localStorage 已覆盖）。
+
+## 0.9.69
+
+- 设置里的「浏览器」分区默认隐藏：面板现在自己管理生命周期，不再需要手动清理跨会话标签。想看/手动清理时把 `showSettings` 设成 true。
+- 后台会话也能用浏览器：当调用方会话不是用户正在看的那个时，工具调用自动落到**该会话自己的无头浏览器**上（每会话独立 profile），不再排队等用户切过去，也不触碰用户正在看的面板。
+  - 实测：隐藏会话 `browser_open https://example.net/` → 成功返回、`background: true`；随后 `browser_text` 读到同一页面；`browser_tabs` 里没有新增面板标签，当前可见会话不受影响。
+  - 无头导航结果会写回该会话的「上次页面」，用户切回来时面板仍按挂起快照恢复。
+  - 开关 `backgroundFallback`（默认开）。
+- 修：后台恢复失败时不再丢弃挂起快照（之前删除后才尝试挂载，失败就丢失标签记录）。
+
+
 ## 0.9.69
 
 - 设置里的「浏览器」分区默认隐藏：面板现在自己管理生命周期，不再需要手动清理跨会话标签。想看/手动清理时把 `showSettings` 设成 true。

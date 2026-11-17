@@ -59,6 +59,8 @@ const ROUTE_RESULT = '/api/katt-browser/result';
 const ROUTE_PAGE_STATE = '/api/katt-browser/page-state';
 const ROUTE_PROBE = '/api/katt-browser/probe';
 const ROUTE_OPEN_FILE = '/api/katt-browser/open-file';
+const ROUTE_CAPTURE_STATE = '/api/katt-browser/capture-state';
+const ROUTE_APPLY_STATE = '/api/katt-browser/apply-state';
 
 /**
  * Open a workspace file in the sidebar browser. The webview refuses file://
@@ -911,6 +913,68 @@ class BrowserSession {
     return { file, bytes: Math.round((data.length * 3) / 4) };
   }
 
+  /* ---- state helpers used by the background fallback ---------------------- */
+  async cookies() {
+    await this.ensure();
+    /* Network.* are page-session methods, so pass the attached session id. */
+    const result = await this.send('Network.getCookies', {}, this.sessionId);
+    return (result && result.cookies) || [];
+  }
+
+  async setCookies(cookies) {
+    await this.ensure();
+    const list = (Array.isArray(cookies) ? cookies : [])
+      .filter((cookie) => cookie && typeof cookie.name === 'string' && cookie.name !== '')
+      .map((cookie) => {
+        const next = { name: cookie.name, value: String(cookie.value || '') };
+        for (const key of ['domain', 'path', 'secure', 'httpOnly', 'sameSite']) {
+          if (cookie[key] !== undefined) next[key] = cookie[key];
+        }
+        if (Number.isFinite(cookie.expires) && cookie.expires > 0) next.expires = cookie.expires;
+        return next;
+      });
+    if (list.length === 0) return 0;
+    /* Older embedded Chromium builds only expose Network.setCookie (singular). */
+    let applied = 0;
+    try { await this.send('Network.enable', {}, this.sessionId); } catch (error) { /* optional */ }
+    for (const cookie of list) {
+      try { await this.send('Network.setCookie', cookie, this.sessionId); applied += 1; continue; } catch (error) { /* retry with url */ }
+      try {
+        const host = String(cookie.domain || '').replace(/^\./, '');
+        const scheme = cookie.secure ? 'https' : 'http';
+        const url = host !== '' ? scheme + '://' + host + (cookie.path || '/') : '';
+        if (url !== '') { await this.send('Network.setCookie', { ...cookie, url }, this.sessionId); applied += 1; }
+      } catch (error) { /* skip this cookie */ }
+    }
+    return applied;
+  }
+
+  async storageSnapshot() {
+    await this.ensure();
+    const raw = await this.evaluate(`JSON.stringify({
+      origin: location.origin,
+      local: (() => { try { return Object.fromEntries(Object.entries(localStorage).slice(0, 200)); } catch (error) { return {}; } })(),
+      session: (() => { try { return Object.fromEntries(Object.entries(sessionStorage).slice(0, 200)); } catch (error) { return {}; } })(),
+    })`);
+    try { return raw ? JSON.parse(raw) : null; } catch (error) { return null; }
+  }
+
+  async restoreStorage(snapshot) {
+    if (!snapshot || !snapshot.origin) return false;
+    await this.ensure();
+    const payload = JSON.stringify({ origin: snapshot.origin || '', local: snapshot.local || {}, session: snapshot.session || {} });
+    const result = await this.evaluate(`(async () => {
+      const snapshot = ${payload};
+      if (location.origin !== snapshot.origin) return false;
+      try {
+        for (const [key, value] of Object.entries(snapshot.local)) localStorage.setItem(key, String(value));
+        for (const [key, value] of Object.entries(snapshot.session)) sessionStorage.setItem(key, String(value));
+        return true;
+      } catch (error) { return false; }
+    })()`);
+    return Boolean(result);
+  }
+
   /* ---------------------------------------------------------------- input */
 
   async #mouse(type, x, y, clickCount = 0, button = 'left', buttonsMask = 0) {
@@ -1544,6 +1608,46 @@ export function apply(ctx, config = {}) {
     } catch (error) { /* memory only */ }
   };
 
+  /* ---- panel <-> background login/state handoff ---------------------------
+     The Electron webview and the background Chromium have separate profiles, so
+     cookies and localStorage are mirrored per session at every engine switch. */
+  const syncDir = path.join(dataRoot, 'session-state');
+  const syncKeyOf = (id) => String(id || 'default').replace(/[^\w.-]+/g, '_').slice(0, 96) || 'default';
+  const syncFileOf = (sessionId) => path.join(syncDir, syncKeyOf(sessionId) + '.json');
+  const readSyncedState = (sessionId) => {
+    try { return JSON.parse(readFileSync(syncFileOf(sessionId), 'utf8')) || null; } catch (error) { return null; }
+  };
+  const writeSyncedState = (sessionId, patch) => {
+    const previous = readSyncedState(sessionId) || {};
+    const next = { ...previous, ...patch, updatedAt: Date.now() };
+    try {
+      mkdirSync(syncDir, { recursive: true });
+      writeFileSync(syncFileOf(sessionId), JSON.stringify(next), 'utf8');
+    } catch (error) { /* memory only */ }
+    return next;
+  };
+  const capturePanelState = async (sessionId, hintUrl) => {
+    if (!webview || typeof webview.panelCookies !== 'function') return { skipped: 'no-panel' };
+    /* CDP attach is gated by caller session: capture is meant for the visible session. */
+    try { webview.setCallerSession?.(sessionId); } catch (error) { /* best effort */ }
+    const cookies = await webview.panelCookies(hintUrl).catch(() => null);
+    const storage = await webview.panelStorageSnapshot(hintUrl).catch(() => null);
+    if (!cookies && !storage) return { skipped: 'no-attach' };
+    const state = writeSyncedState(sessionId, { cookies: cookies || [], storage: storage || null });
+    return { cookies: (state.cookies || []).length, storageOrigin: state.storage && state.storage.origin ? state.storage.origin : '' };
+  };
+  const applyStateToPanel = async (sessionId, hintUrl) => {
+    if (!webview || typeof webview.panelSetCookies !== 'function') return { skipped: 'no-panel' };
+    const state = readSyncedState(sessionId);
+    if (!state) return { skipped: 'no-state' };
+    const cookies = await webview.panelSetCookies(state.cookies || [], hintUrl).catch(() => 0);
+    const storage = state.storage && typeof webview.panelRestoreStorage === 'function'
+      ? await webview.panelRestoreStorage(state.storage, hintUrl).catch(() => false)
+      : false;
+    await webview.panelReload(hintUrl).catch(() => false);
+    return { cookies, storage, origin: state.storage && state.storage.origin ? state.storage.origin : '' };
+  };
+
   const diagnostics = () => {
     if (headless) {
       return {
@@ -1783,6 +1887,26 @@ export function apply(ctx, config = {}) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
       }
     },
+    [ROUTE_CAPTURE_STATE]: async (req, res) => {
+      if (preflight(req, res)) return;
+      try {
+        const body = await readJsonBody(req);
+        const result = await capturePanelState(String((body && body.session) || ''), String((body && body.url) || ''));
+        sendJson(res, 200, result, CORS_HEADERS);
+      } catch (error) {
+        sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
+      }
+    },
+    [ROUTE_APPLY_STATE]: async (req, res) => {
+      if (preflight(req, res)) return;
+      try {
+        const body = await readJsonBody(req);
+        const result = await applyStateToPanel(String((body && body.session) || ''), String((body && body.url) || ''));
+        sendJson(res, 200, result, CORS_HEADERS);
+      } catch (error) {
+        sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
+      }
+    },
     [ROUTE_OPEN_FILE]: async (req, res) => {
       if (preflight(req, res)) return;
       try {
@@ -1841,14 +1965,44 @@ export function apply(ctx, config = {}) {
             const backgroundExecute = backgroundTools.get(tool.name);
             if (backgroundExecute && visible !== '' && sessionId !== visible && !panelOnlyTools.has(tool.name)) {
               try { backgroundHeadless.setCallerSession?.(sessionId); } catch {}
+              const syncInfo = { session: sessionId };
+              /* Logins captured from the panel follow the session into the background browser. */
+              try {
+                const synced = readSyncedState(sessionId);
+                syncInfo.saved = Boolean(synced);
+                syncInfo.savedCookies = synced && Array.isArray(synced.cookies) ? synced.cookies.length : 0;
+                if (synced && Array.isArray(synced.cookies) && synced.cookies.length > 0 && typeof backgroundHeadless.setCookies === 'function') {
+                  syncInfo.applied = await backgroundHeadless.setCookies(synced.cookies);
+                } else {
+                  syncInfo.applied = 'skipped';
+                  syncInfo.hasSetter = typeof backgroundHeadless.setCookies === 'function';
+                }
+              } catch (error) { syncInfo.error = String(error && error.message ? error.message : error); }
               const result = await backgroundExecute(args);
               try {
                 const url = (result && result.state && typeof result.state.url === 'string' && result.state.url)
                   || (result && typeof result.url === 'string' ? result.url : '');
                 if (url !== '') rememberPage(sessionId, url);
+                /* localStorage needs the page origin, so restore it after the navigation. */
+                const synced = readSyncedState(sessionId);
+                if (synced && synced.storage && typeof backgroundHeadless.restoreStorage === 'function' && url !== ''
+                  && synced.storage.origin && url.startsWith(synced.storage.origin)) {
+                  await backgroundHeadless.restoreStorage(synced.storage);
+                  try { if (typeof backgroundHeadless.send === 'function') await backgroundHeadless.send('Page.reload', {}); } catch (error) { /* reload optional */ }
+                }
               } catch { /* page memory is best effort */ }
+              /* Keep what the background browser learned so the panel sees the same login. */
+              try {
+                /* Let the page's own scripts settle before reading localStorage. */
+                await new Promise((resolve) => setTimeout(resolve, 350));
+                if (typeof backgroundHeadless.cookies === 'function') {
+                  const cookies = await backgroundHeadless.cookies();
+                  const storage = typeof backgroundHeadless.storageSnapshot === 'function' ? await backgroundHeadless.storageSnapshot() : null;
+                  writeSyncedState(sessionId, { cookies: cookies || [], storage: storage || null });
+                }
+              } catch (error) { /* best effort */ }
               const payload = result && typeof result === 'object' ? result : { result };
-              return { ...payload, background: true, driver: 'headless' };
+              return { ...payload, background: true, driver: 'headless', sync: syncInfo };
             }
           } catch (error) {
             /* Fall through to the panel path: it will queue or refuse with a clear message. */

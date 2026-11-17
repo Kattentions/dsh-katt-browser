@@ -18,10 +18,12 @@ window.__ModuleLoader__.load({
     const RESULT_URL = '/api/katt-browser/result';
     const PAGE_STATE_URL = '/api/katt-browser/page-state';
     const PROBE_URL = '/api/katt-browser/probe';
+const CAPTURE_STATE_URL = '/api/katt-browser/capture-state';
+const APPLY_STATE_URL = '/api/katt-browser/apply-state';
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.69';
+    const VERSION = '0.9.70';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -95,6 +97,8 @@ window.__ModuleLoader__.load({
     const suspendLog = [];
     let suspendEnabled = true;
     let showSettings = false;
+    let lastPanelCaptureAt = 0;
+    let lastCapturedKey = "";
     let lastVisibleSessionSeen = '';
     const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -122,6 +126,31 @@ window.__ModuleLoader__.load({
       const next = Math.max(0, (sessionBusy.get(session) || 0) + delta);
       if (next === 0) sessionBusy.delete(session);
       else sessionBusy.set(session, next);
+    }
+
+    /** Persist the visible panel's login state shortly after any page change. */
+    function captureVisiblePanelState() {
+      try {
+        if (!canHostPanel) return;
+        const visible = visibleSession();
+        if (!visible) return;
+        const url = mountedPanelUrl();
+        if (!url) return;
+        const key = visible + '|' + url;
+        const now = Date.now();
+        if (key === lastCapturedKey && now - lastPanelCaptureAt < 15000) return;
+        lastCapturedKey = key;
+        lastPanelCaptureAt = now;
+        post(CAPTURE_STATE_URL, { session: visible, url, v: VERSION }).catch(() => {});
+      } catch (error) { /* best effort */ }
+    }
+
+    function mountedPanelUrl() {
+      try {
+        const views = [...document.querySelectorAll('webview')];
+        const view = views.find((element) => measure(element) > 4) || views[0];
+        return view && typeof view.getURL === 'function' ? String(view.getURL() || '') : '';
+      } catch (error) { return ''; }
     }
 
     function viewOfTab(session, tabId) {
@@ -175,6 +204,8 @@ window.__ModuleLoader__.load({
       if (!snapshot.tabs.some((item) => item.url)) return { skipped: 'no-url' };
       sessionSnapshots.set(session, snapshot);
       saveSuspendedSnapshots();
+      /* Save cookies/localStorage while the panel guest is still alive. */
+      try { await post(CAPTURE_STATE_URL, { session, v: VERSION }); } catch (error) { /* best effort */ }
       const right = sidebarRight();
       let closed = 0;
       if (right && typeof right.closeIn === 'function') {
@@ -225,6 +256,8 @@ window.__ModuleLoader__.load({
           }
         }
       } catch (error) { /* restore is best effort */ }
+      /* Pull the freshest cookies/localStorage (possibly written by the background browser). */
+      try { await post(APPLY_STATE_URL, { session, url: mountedPanelUrl(), v: VERSION }); } catch (error) { /* best effort */ }
       return { restored: urls.length, active: snapshot.activeUrl || '' };
     }
 
@@ -1697,6 +1730,7 @@ window.__ModuleLoader__.load({
     async function heartbeat() {
       if (!canHostPanel) return;
       try { handleVisibleSessionChange(); } catch (error) { /* next tick */ }
+      try { captureVisiblePanelState(); } catch (error) { /* best effort */ }
       /* Remember URL/title for every mounted tab; prune tabs that are gone. */
       try {
         for (const view of document.querySelectorAll('webview')) {
@@ -2119,6 +2153,7 @@ window.__ModuleLoader__.load({
         if (visibilityTimer) clearInterval(visibilityTimer);
         visibilityTimer = setInterval(() => {
           try { handleVisibleSessionChange(); } catch (error) { /* next tick */ }
+          try { captureVisiblePanelState(); } catch (error) { /* next tick */ }
         }, 1500);
         ctx.effect(() => () => {
           clearInterval(pageStateTimer);
