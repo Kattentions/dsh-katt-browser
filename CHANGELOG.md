@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.9.58
+
+- `package.json` 补 `main: index.js` 和 `engines.node >= 20`：插件宿主侧用到全局 `fetch`/`WebSocket`，低于 Node 20 装上也跑不起来，现在至少能在安装阶段提示。
+- 没加 `engines.dsh`：DSH 核心版本没有稳定对外暴露（app.asar 里读不到，inspect 服务目录也没有 version），官方插件用的是 `peerDependencies` 精确 rc 版本；照抄会把人锁在 0.2.1-rc.x 上，升级 DSH 反而可能被拦。宁可不加，也不添加会误伤的约束。
+- 实测：加完元数据后插件重新加载、`browser_doctor` 仍 `ok`（4 个标签页、无排队、bridge 模式）。
+
 ## 0.9.57
 
 - 打包修正：`scripts/check-contracts.mjs` 之前没进 npm 包，而 README 又让你 `npm run check`——从 npm 装的人跑会找不到文件。现在 `files` 加了 `scripts/**`，解包实测 `node scripts/check-contracts.mjs` 直接通过。
