@@ -55,7 +55,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/Kattentions/dsh-katt-browser.git",
-            "commit": "PENDING"
+            "commit": "077bf9e150a871f92b0c7a01112b17f42442cb69"
           }
         }
       ]
