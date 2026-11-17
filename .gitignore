@@ -7,3 +7,7 @@ node_modules/
 Thumbs.db
 profiles/
 *.log
+
+# Build artifacts stay local; the market installs from the git source.
+dist/
+*.tgz
