@@ -1,5 +1,13 @@
 # 变更记录
 
+## 0.9.46
+
+同一份客户端代码也会在手机上运行（手机 GUI 走 bridge 代理），但手机没有 Electron `<webview>`，以前会一起轮询浏览器命令、一起上报页面状态，谁最后写入谁生效——桌面上的浏览器状态可能被手机端的空状态覆盖，命令也可能派给手机导致执行失败。
+
+- 客户端启动时检测 `dshDesktop.browser` 能力（桌面 Shell 才有）：不具备该能力的客户端**不轮询浏览器命令、不上报 probe/page-state**，设置页等本地功能照常。
+- probe/page-state 负载带 `panel: true`；宿主对 `panel: false` 的上报直接忽略（返回 `ignored: 'no-panel'`），作为第二道防线。
+- 实测：伪造手机上报被忽略（返回 ignored），伪造桌面上报会被接受但 15 秒内被真实心跳覆盖回真实状态；真实心跳的周期性补发也验证有效。
+
 ## 0.9.45
 
 - 做了一次「工具调用 ↔ 驱动方法」的静态契约审计：webview 的 HybridSession 覆盖全部 39 个被调用的方法；headless 在 0.9.44 补完后从 25 个增加到 52 个，连可选调用（`cancelQueued`、`diagnostics`、`setCallerSession`）也对上了，不再有「某工具在某个驱动下必然炸」的组合。

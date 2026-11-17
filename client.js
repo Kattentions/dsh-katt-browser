@@ -21,7 +21,10 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.45';
+    const VERSION = '0.9.46';
+    /* The phone GUI uses the same client bundle but cannot own an Electron
+       <webview>; it must never poll commands or overwrite the desktop's state. */
+    const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
 
 
     const ORIGINS = [''];
@@ -1233,6 +1236,7 @@ window.__ModuleLoader__.load({
     // CONNECTING, so plain POSTs (the same channel the heartbeats already use) are the
     // reliable way to reach the Host.
     async function pollLoop() {
+      if (!canHostPanel) return;
       if (pollStarted) return;
       pollStarted = true;
       while (!pollStopped) {
@@ -1338,6 +1342,7 @@ window.__ModuleLoader__.load({
     }
 
     async function heartbeat() {
+      if (!canHostPanel) return;
       /* Remember URL/title for every mounted tab; prune tabs that are gone. */
       try {
         for (const view of document.querySelectorAll('webview')) {
@@ -1362,7 +1367,7 @@ window.__ModuleLoader__.load({
       // Install the bridge-side helpers (same-tab policy + clipboard shim) even when no tool
       // call has attached CDP yet, so copy buttons work while the user browses on their own.
       if (view) installSameTabPolicy(view);
-      const probe = { at: Date.now(), hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
+      const probe = { at: Date.now(), panel: true, hasWebview: Boolean(view), count: document.querySelectorAll('webview').length, diagnose: diagnose(), v: VERSION };
       if (view) probe.capabilities = capabilities(view);
       // Only post when something actually changed: a quiet panel used to cost a POST every
       // 2.5s for identical data, and every reply woke the Host for nothing.
@@ -1388,7 +1393,7 @@ window.__ModuleLoader__.load({
       const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
       if (stateKey === lastStateKey) return;
       lastStateKey = stateKey;
-      await post(PAGE_STATE_URL, { ...state, session: visibleSession(), v: VERSION });
+      await post(PAGE_STATE_URL, { ...state, panel: true, session: visibleSession(), v: VERSION });
     }
 
     /* ---- panel chrome ----

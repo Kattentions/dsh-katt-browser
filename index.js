@@ -1655,6 +1655,7 @@ export function apply(ctx, config = {}) {
       if (preflight(req, res)) return;
       try {
         const body = await readJsonBody(req);
+        if (body && body.panel === false) { sendJson(res, 200, { ok: true, ignored: 'no-panel' }, CORS_HEADERS); return; }
         if (bridge && bridge.accepts(body.v)) bridge.setPageState(body);
         if (config.restoreLastPage !== false && body && typeof body.session === 'string') rememberPage(body.session, String(body.url || ''));
         sendJson(res, 200, { ok: true }, CORS_HEADERS);
@@ -1666,6 +1667,7 @@ export function apply(ctx, config = {}) {
       if (preflight(req, res)) return;
       try {
         const body = await readJsonBody(req);
+        if (body && body.panel === false) { sendJson(res, 200, { ok: true, ignored: 'no-panel' }, CORS_HEADERS); return; }
         if (bridge && bridge.accepts(body.v)) bridge.setProbe(body);
         sendJson(res, 200, {
       ok: true,
