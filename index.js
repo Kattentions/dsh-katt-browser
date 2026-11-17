@@ -1569,7 +1569,12 @@ export function apply(ctx, config = {}) {
       try {
         const body = await readJsonBody(req);
         if (bridge && bridge.accepts(body.v)) bridge.setProbe(body);
-        sendJson(res, 200, { ok: true, homeUrl: (typeof config.homeUrl === 'string' && config.homeUrl.trim()) ? config.homeUrl.trim() : 'https://www.bing.com' }, CORS_HEADERS);
+        sendJson(res, 200, {
+      ok: true,
+      homeUrl: (typeof config.homeUrl === 'string' && config.homeUrl.trim()) ? config.homeUrl.trim() : 'https://www.bing.com',
+      driver: config.driver === 'headless' ? 'headless' : 'webview',
+      maxHeadlessBrowsers: Number(config.maxHeadlessBrowsers) > 0 ? Math.floor(Number(config.maxHeadlessBrowsers)) : 3,
+    }, CORS_HEADERS);
       } catch (error) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
       }

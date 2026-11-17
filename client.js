@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.34';
+    const VERSION = '0.9.35';
 
 
     const ORIGINS = [''];
@@ -47,6 +47,8 @@ window.__ModuleLoader__.load({
     /* Default page for a browser tab opened without a URL ("浏览器" command / Ctrl+T).
        The Host sends the configured value back with every probe reply. */
     let homeUrl = 'https://www.bing.com';
+    let driverMode = 'webview';
+    let maxHeadlessBrowsers = 3;
     let pageStateTimer = null;
     // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
     // viewing, and a tool call from another workspace must not open it in front of them.
@@ -1294,6 +1296,8 @@ window.__ModuleLoader__.load({
         lastProbeKey = probeKey;
         const reply = await post(PROBE_URL, probe);
         if (reply && typeof reply.homeUrl === 'string' && reply.homeUrl !== '') homeUrl = reply.homeUrl;
+      if (reply && typeof reply.driver === 'string' && reply.driver !== '') driverMode = reply.driver;
+      if (reply && Number(reply.maxHeadlessBrowsers) > 0) maxHeadlessBrowsers = Math.floor(Number(reply.maxHeadlessBrowsers));
       }
       if (!view) return;
       const state = await stateOf(view);
@@ -1573,6 +1577,8 @@ window.__ModuleLoader__.load({
         h('h2', { style: { margin: 0, fontSize: 18, fontWeight: 600 } }, '浏览器'),
         h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
           '所有会话的侧栏浏览器标签页。标签按会话隔离，关掉别的会话里遗留的标签不会影响当前会话正在看的页面。'),
+        h('p', { style: { margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
+          '驱动：' + (driverMode === 'headless' ? '无头浏览器（每会话独立 profile，实例上限 ' + maxHeadlessBrowsers + '）' : '侧栏 webview') + ' · 首页：' + homeUrl),
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } },
           h('span', null, '当前会话：' + (visible ? visible.slice(0, 22) + '…' : '未知') + ' · ' + rows.length + ' 个标签页'),
           h('button', { onClick: refresh, style: buttonStyle }, '刷新')),
