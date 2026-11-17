@@ -1,6 +1,9 @@
 window.__ModuleLoader__.load({
   id: '@local/katt-browser',
   factory(require) {
+    let React = null;
+    try { React = require('react'); } catch (error) { React = null; }
+    const h = React ? React.createElement : null;
 
     /* ------------------------------------------------------------------------
        katt-browser client half (webview driver).
@@ -18,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.31';
+    const VERSION = '0.9.32';
 
 
     const ORIGINS = [''];
@@ -1501,9 +1504,89 @@ window.__ModuleLoader__.load({
       } catch (error) { /* presentation only */ }
     }
 
+    /* ---- settings section: browser tabs across sessions ----
+       The right sidebar is per-session, so tabs belonging to other conversations are
+       invisible in the panel. This list shows every tab with its session owner and
+       lets the user close a leftover one without switching conversations. */
+    function kattSettingsTabs() {
+      try {
+        const visible = visibleSession();
+        return browserTabs().map((tab) => {
+          const chip = tabChip(tab.tabId);
+          const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
+          return {
+            tabId: tab.tabId,
+            sessionId: tab.sessionId || '',
+            visible: Boolean(tab.sessionId && visible && tab.sessionId === visible),
+            title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '',
+            url: typeof navigation.url === 'string' ? navigation.url : '',
+          };
+        });
+      } catch (error) { return []; }
+    }
+
+    function BrowserSettingsSection() {
+      const [rows, setRows] = React.useState([]);
+      const [visible, setVisible] = React.useState('');
+      const refresh = React.useCallback(() => {
+        setRows(kattSettingsTabs());
+        try { setVisible(visibleSession()); } catch (error) { setVisible(''); }
+      }, []);
+      React.useEffect(() => {
+        refresh();
+        const timer = window.setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+        return () => window.clearInterval(timer);
+      }, [refresh]);
+      const closeTab = (sessionId, tabId) => {
+        try { const right = sidebarRight(); if (right && typeof right.closeIn === 'function') right.closeIn(sessionId, tabId); } catch (error) { /* gone */ }
+        window.setTimeout(refresh, 150);
+      };
+      const rowStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--dsw-alias-border-l1)', fontSize: 13 };
+      const metaStyle = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' };
+      const buttonStyle = { flex: 'none', font: 'inherit', fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'inherit', cursor: 'pointer' };
+      const rowsView = rows.length === 0
+        ? h('p', { style: metaStyle }, '还没有打开过浏览器标签页。')
+        : h('div', null, rows.map((row) => h('div', { key: row.sessionId + row.tabId, style: rowStyle },
+            h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+              h('span', { style: { fontWeight: 500 } }, (row.visible ? '当前 · ' : '') + (row.title || '浏览器标签页')),
+              h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : ''))
+            ),
+            h('button', { onClick: () => closeTab(row.sessionId, row.tabId), style: buttonStyle }, '关闭')
+          )));
+      return h('section',
+        { style: { display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 720, padding: '8px 0', color: 'var(--dsw-alias-label-primary)' } },
+        h('h2', { style: { margin: 0, fontSize: 18, fontWeight: 600 } }, '浏览器'),
+        h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
+          '所有会话的侧栏浏览器标签页。标签按会话隔离，关掉别的会话里遗留的标签不会影响当前会话正在看的页面。'),
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } },
+          h('span', null, '当前会话：' + (visible ? visible.slice(0, 22) + '…' : '未知') + ' · ' + rows.length + ' 个标签页'),
+          h('button', { onClick: refresh, style: buttonStyle }, '刷新')),
+        rowsView,
+      );
+    }
+
+    function BrowserSettingsIcon(props) {
+      const size = (props && Number(props.size)) || 16;
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': true, style: { display: 'block', color: props && props.active ? 'var(--dsw-alias-brand-primary)' : 'currentColor' } },
+        h('circle', { cx: 8, cy: 8, r: 6.2, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
+        h('path', { d: 'M2.2 8h11.6M8 1.8c1.7 1.7 2.6 3.9 2.6 6.2S9.7 12.5 8 14.2C6.3 12.5 5.4 10.3 5.4 8S6.3 3.5 8 1.8Z', fill: 'none', stroke: 'currentColor', strokeWidth: 1.1 }));
+    }
+
     return {
-      inject: ['sidebarRight', 'layout', 'sessions'],
+      inject: ['sidebarRight', 'layout', 'sessions', 'slots'],
       apply(ctx) {
+        try {
+          if (React && ctx.slots && typeof ctx.slots.inject === 'function') {
+            ctx.slots.inject('settings.section', () => {
+              const sectionDisposers = [];
+              try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section', id: 'katt-browser', order: 14, label: () => '浏览器' }, BrowserSettingsSection)); } catch (error) { /* older shell */ }
+              try { sectionDisposers.push(ctx.slots.register({ name: 'settings.section.icon', key: 'katt-browser' }, BrowserSettingsIcon)); } catch (error) { /* icon optional */ }
+              return () => {
+                for (const dispose of sectionDisposers) { try { dispose(); } catch (error) { /* gone */ } }
+              };
+            });
+          }
+        } catch (error) { /* settings section is optional */ }
         pluginCtx = ctx;
         if (typeof window !== 'undefined') window.__KATT_WEBVIEW_BRIDGE__ = true;
         bootstrap();
