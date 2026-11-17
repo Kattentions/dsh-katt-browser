@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.60';
+    const VERSION = '0.9.61';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
     let maxHeadlessBrowsers = 3;
     let headlessInstances = 0;
     let pageStateTimer = null;
+    let replayTimer = null;
     // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
     // viewing, and a tool call from another workspace must not open it in front of them.
     let revealPanel = false;
@@ -1378,8 +1379,19 @@ window.__ModuleLoader__.load({
         /* A queued page should not surprise the user hours later. */
         if (queuedAt && Date.now() - queuedAt > 2 * 60 * 60 * 1000) { pendingOpens.delete(session); return; }
         if (!url) return;
-        const owned = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === session);
-        if (owned) { pendingOpens.delete(session); return; }
+        const ownedViews = [...document.querySelectorAll('webview')].filter((view) => ownerSession(view) === session);
+        if (ownedViews.length > 0) {
+          /* Switching back mounts the panel on its last page; the queued page still
+             has to open, or the request would be dropped silently. */
+          let current = '';
+          try { current = typeof ownedViews[0].getURL === 'function' ? String(ownedViews[0].getURL() || '') : ''; } catch (error) { current = ''; }
+          pendingOpens.delete(session);
+          const strip = (value) => String(value || '').split('#')[0].replace(/\/+$/, '');
+          if (strip(current) === strip(url)) return;
+          try { replayLog.push({ session, url, at: Date.now() }); while (replayLog.length > 10) replayLog.shift(); } catch (error) { /* diagnostics */ }
+          runCommand('open', { url, session }).catch(() => {});
+          return;
+        }
         pendingOpens.delete(session);
         try { replayLog.push({ session, url, at: Date.now() }); while (replayLog.length > 10) replayLog.shift(); } catch (error) { /* diagnostics */ }
         runCommand('open', { url, session }).catch(() => {});
@@ -1786,8 +1798,15 @@ window.__ModuleLoader__.load({
         installOmniboxSearch();
         if (pageStateTimer) clearInterval(pageStateTimer);
         pageStateTimer = setInterval(heartbeat, 8000);
+        /* Replaying a queued page used to wait for the 8s heartbeat; a short timer
+           opens it as soon as the user actually switches to the session. */
+        if (replayTimer) clearInterval(replayTimer);
+        replayTimer = setInterval(() => {
+          try { if (pendingOpens.size > 0) replayPendingOpen(); } catch (error) { /* retry next tick */ }
+        }, 2000);
         ctx.effect(() => () => {
           clearInterval(pageStateTimer);
+          if (replayTimer) clearInterval(replayTimer);
           pollStopped = true;
           if (typeof window !== 'undefined' && window.__kattBrowserChromeStop) window.__kattBrowserChromeStop();
           if (typeof window !== 'undefined' && window.__kattFileOpenInterceptorStop) window.__kattFileOpenInterceptorStop();

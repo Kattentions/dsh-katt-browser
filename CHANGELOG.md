@@ -1,5 +1,13 @@
 # 变更记录
 
+## 0.9.61
+
+- 修后台会话排队页的两个问题（实测出来的）：
+  1. 切回会话后排队页最多要等 8 秒心跳才打开。现在客户端用 2 秒短定时器检查待打开队列，切换后基本立刻打开。
+  2. 更严重：切换回去时该会话的 webview 已经挂载（显示上次页面），旧逻辑看到「已挂载」就直接丢弃排队项，用户永远看不到当初排队的页面。现在会读取当前 URL，不同才用 open 命令导航过去。
+- 实测：从本会话（隐藏）open example.net → 排队；点侧边栏切到「临时」会话 → 4.5 秒内 webview 变为 https://example.net/，队列清空，replays 记录一条；切回「嘉立创EDA更新与项目学习」后可见会话恢复为 session-760cf…。
+
+
 ## 0.9.60
 
 - 新增 `scripts/prepare-release.mjs`（`npm run prepare-release -- <版本号>`）：一次改完 package.json、client.js 的 VERSION、市场 index.json（版本 + commit 先写 PENDING），并拒绝降级。打包、打 tag、推远端仍然手动作业。
