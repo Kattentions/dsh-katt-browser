@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.63';
+    const VERSION = '0.9.64';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -1072,13 +1072,21 @@ window.__ModuleLoader__.load({
         throw new Error('截图失败（窗口被遮挡或渲染进程不可见）：' + lastError);
       }
       if (op === 'sweep-stale') {
-        // Panel tabs whose guest target is already gone leave a dead tab behind. Close
-        // only those: a tab holding any <webview> element is a real page and stays.
+        /* Only blank start-page tabs of the caller's own session. Hidden sessions
+           have no mounted webviews by design, so the old "no webview = dead" rule
+           closed every other conversation's panel. */
         const right = sidebarRight();
+        const sweepSession = String((args && args.session) || '') || visibleSession();
         const live = new Set([...document.querySelectorAll('webview')].map((element) => tabIdOf(element)).filter(Boolean));
+        const isStaleTab = (tab) => {
+          if (!tab || !tab.sessionId || tab.sessionId !== sweepSession) return false;
+          if (live.has(tab.tabId)) return false;
+          const chip = tabChip(tab.tabId);
+          const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
+          return label === '浏览器' || label === 'Browser';
+        };
         let closed = 0;
-        for (const tab of browserTabs()) {
-          if (live.has(tab.tabId)) continue;
+        for (const tab of browserTabs().filter(isStaleTab)) {
           if (right && tab.sessionId && typeof right.closeIn === 'function') {
             try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
           } else {
@@ -1157,21 +1165,29 @@ window.__ModuleLoader__.load({
         const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
         const right = sidebarRight();
         const visible = visibleSession();
+        /* Cleaning "stale" tabs must stay inside the caller's own session: tabs of
+           other sessions have no mounted webview while hidden, and treating that as
+           dead would wipe every background conversation's panel. Blank start-page
+           tabs only, never one that already shows a page. */
+        const closeSession = String((args && args.session) || '') || visible;
+        const isStaleTab = (tab) => {
+          if (!tab || !tab.sessionId || tab.sessionId !== closeSession) return false;
+          if (keep.has(tab.tabId)) return false;
+          const chip = tabChip(tab.tabId);
+          const label = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim() : '';
+          return label === '浏览器' || label === 'Browser';
+        };
         const describe = () => browserTabs().map((tab) => describeBrowserTab(tab, visible));
         let closed = 0;
         if (close && right && typeof right.closeIn === 'function') {
-          for (const tab of browserTabs()) {
-            if (keep.has(tab.tabId)) continue;
-            if (tab.sessionId) {
-              try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
-              await new Promise((resolve) => setTimeout(resolve, 60));
-            }
+          for (const tab of browserTabs().filter(isStaleTab)) {
+            try { right.closeIn(tab.sessionId, tab.tabId); closed += 1; } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 60));
           }
         }
         if (close) {
           // Fallback for tabs whose closeIn call does not take effect: hit their chip X.
-          for (const tab of browserTabs()) {
-            if (keep.has(tab.tabId)) continue;
+          for (const tab of browserTabs().filter(isStaleTab)) {
             const chip = tabChip(tab.tabId);
             const closer = chip ? chip.querySelector('[aria-label*="关闭"], [aria-label*="Close"]') : null;
             if (closer) { try { closer.click(); closed += 1; } catch {} }

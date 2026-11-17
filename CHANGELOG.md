@@ -1,5 +1,13 @@
 # 变更记录
 
+## 0.9.64
+
+- 修一个会误删别的会话标签页的隐患：`browser_tabs list closeExtras=true` 和内部的 `sweep-stale` 以前把「没有挂载 webview」当作死标签。隐藏会话本来就不挂 webview，因此在任一工具调用里顺手清理，可能把其它会话所有浏览器标签一起关掉。
+  - 现在只在**调用者自己的会话**内清理，且只关「仍是空引导页（标签标题为 浏览器/Browser）」的标签，已经显示页面的标签不碰。
+  - `webview` 层把 `callerSession` 一起传给这两个动作。
+- 实测：`browser_tabs list closeExtras=true` 返回 `closed: 0, remaining: 4`，四个会话的标签全部保留（其中三个是别的会话的空标签，旧逻辑会全部清掉）。
+
+
 ## 0.9.63
 
 - 修后台会话的工具调用会顺手展开用户侧边栏的问题：hybrid 的 `#ensurePanel` 以前只要发现面板不可见就自动展开（`autoReveal` 默认开），不管调用来自哪个会话。现在先比对 `callerSession` 与客户端上报的可见会话，不是同一个就直接返回不展开——排队照旧，只是不抢用户正在看的界面。
