@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.36';
+    const VERSION = '0.9.37';
 
 
     const ORIGINS = [''];
@@ -44,6 +44,9 @@ window.__ModuleLoader__.load({
     /* Opens requested while the caller session pane was not visible; replayed when
        the user switches to that session. */
     const pendingOpens = new Map();
+    /* Hidden tabs have no mounted webview, so the panel cannot report their URL/title.
+       Remember what each tab last showed while it was mounted. */
+    const tabMemory = new Map();
     /* Default page for a browser tab opened without a URL ("浏览器" command / Ctrl+T).
        The Host sends the configured value back with every probe reply. */
     let homeUrl = 'https://www.bing.com';
@@ -524,6 +527,23 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** One tab row for the Host tools and the settings page. */
+    function describeBrowserTab(tab, visible) {
+      const chip = tabChip(tab.tabId);
+      const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
+      const memory = tabMemory.get(tab.tabId) || null;
+      const chipTitle = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      const navigationUrl = typeof navigation.url === 'string' ? navigation.url : '';
+      return {
+        tabId: tab.tabId,
+        sessionId: tab.sessionId || '',
+        visible: Boolean(tab.sessionId && visible && tab.sessionId === visible),
+        title: chipTitle || (memory && memory.title ? memory.title.slice(0, 60) : ''),
+        url: navigationUrl || (memory && memory.url ? memory.url.slice(0, 200) : ''),
+        remembered: Boolean(!chipTitle && !navigationUrl && memory),
+      };
+    }
+
     function browserTabs() {
       try {
         const right = sidebarRight();
@@ -750,7 +770,10 @@ window.__ModuleLoader__.load({
       const mismatched = callerSession !== '' && currentSession !== '' && callerSession !== currentSession;
       const callerOwnsView = callerSession !== '' && [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
       const opensPage = op === 'open' || op === 'navigate';
-      if (mismatched && !callerOwnsView) {
+      /* Tab management and diagnostics are cross-session by design; every op that
+         drives a page still needs the caller's own mounted tab. */
+      const crossSessionOps = ['tabs', 'tab-close', 'sweep', 'probe', 'page-state'];
+      if (mismatched && !callerOwnsView && !crossSessionOps.includes(op)) {
         if (opensPage) {
           /* The page belongs to a session whose pane is not mounted here. Keep it
              queued for that session instead of driving the panel the user is
@@ -925,8 +948,11 @@ window.__ModuleLoader__.load({
           visibility: document.visibilityState,
         };
       }
-      const view = await waitForWebview(4000, callerSession);
-      if (!view) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页');
+      /* These ops manage tabs or report diagnostics; they work without a mounted
+         page and are safe from any session. Everything else needs its own view. */
+      const panelFreeOps = ['tabs', 'tab-close', 'sweep', 'probe', 'page-state'];
+      const view = panelFreeOps.includes(op) ? null : await waitForWebview(4000, callerSession);
+      if (!view && !panelFreeOps.includes(op)) throw new Error('没找到浏览器面板：请先在右侧栏打开“浏览器”标签页');
       if (op === 'state') return { state: await stateOf(view) };
       if (op === 'evaluate') return { value: await guestEval(view, String((args && args.code) || 'null')) };
       if (op === 'snapshot') return await guestSnapshot(view);
@@ -1054,17 +1080,7 @@ window.__ModuleLoader__.load({
         const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
         const right = sidebarRight();
         const visible = visibleSession();
-        const describe = () => browserTabs().map((tab) => {
-          const chip = tabChip(tab.tabId);
-          const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
-          return {
-            tabId: tab.tabId,
-            sessionId: tab.sessionId || '',
-            visible: Boolean(tab.sessionId && visible && tab.sessionId === visible),
-            title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '',
-            url: typeof navigation.url === 'string' ? navigation.url.slice(0, 200) : '',
-          };
-        });
+        const describe = () => browserTabs().map((tab) => describeBrowserTab(tab, visible));
         let closed = 0;
         if (close && right && typeof right.closeIn === 'function') {
           for (const tab of browserTabs()) {
@@ -1278,6 +1294,20 @@ window.__ModuleLoader__.load({
     }
 
     async function heartbeat() {
+      /* Remember URL/title for every mounted tab; prune tabs that are gone. */
+      try {
+        for (const view of document.querySelectorAll('webview')) {
+          const tabId = tabIdOf(view);
+          if (!tabId) continue;
+          tabMemory.set(tabId, {
+            url: typeof view.getURL === 'function' ? String(view.getURL() || '') : '',
+            title: typeof view.getTitle === 'function' ? String(view.getTitle() || '') : '',
+            at: Date.now(),
+          });
+        }
+        const alive = new Set(browserTabs().map((tab) => tab.tabId));
+        for (const key of [...tabMemory.keys()]) { if (!alive.has(key)) tabMemory.delete(key); }
+      } catch (error) { /* best effort */ }
       replayPendingOpen();
       if (typeof window !== 'undefined' && window.__KATT_BRIDGE_GEN__ !== bridgeGeneration) return;
       // Self-heal: the heartbeat proves the Host is up, so keep the command poll attached.
@@ -1532,17 +1562,7 @@ window.__ModuleLoader__.load({
     function kattSettingsTabs() {
       try {
         const visible = visibleSession();
-        return browserTabs().map((tab) => {
-          const chip = tabChip(tab.tabId);
-          const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
-          return {
-            tabId: tab.tabId,
-            sessionId: tab.sessionId || '',
-            visible: Boolean(tab.sessionId && visible && tab.sessionId === visible),
-            title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '',
-            url: typeof navigation.url === 'string' ? navigation.url : '',
-          };
-        });
+        return browserTabs().map((tab) => describeBrowserTab(tab, visible));
       } catch (error) { return []; }
     }
 
@@ -1583,7 +1603,7 @@ window.__ModuleLoader__.load({
         : h('div', null, rows.map((row) => h('div', { key: row.sessionId + row.tabId, style: rowStyle },
             h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
               h('span', { style: { fontWeight: 500 } }, (row.visible ? '当前 · ' : '') + (row.title || '浏览器标签页')),
-              h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : ''))
+              h('span', { style: metaStyle }, (row.sessionId || '未知会话').slice(0, 26) + (row.url ? ' · ' + row.url.slice(0, 80) : '') + (row.remembered ? '（上次查看）' : ''))
             ),
             h('button', { onClick: () => closeTab(row.sessionId, row.tabId), style: buttonStyle }, '关闭')
           )));
