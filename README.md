@@ -159,6 +159,8 @@ A canvas game whose state never touches the DOM: `browser_instrument` reads the 
 
 ### Multi-session and multi-workspace
 
+**A GUI opened from a phone or another browser is a "panel-less client"**: it has no Electron `<webview>`, so it never polls browser commands and never overwrites the desktop browser state. Session selection and composer drafts are per client and stay independent (verified by switching sessions and typing a draft on a simulated phone client while the desktop kept its session and empty draft). The sidebar browser panel is desktop-only by design; use `driver: headless` if you need browsing from a phone.
+
 The right column belongs to **each session separately**: tools only drive the tabs of the
 session that invoked them, and never navigate a page another session is showing.
 
