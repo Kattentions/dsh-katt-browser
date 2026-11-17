@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.33';
+    const VERSION = '0.9.34';
 
 
     const ORIGINS = [''];
@@ -739,7 +739,7 @@ window.__ModuleLoader__.load({
       if (op === 'queueOpen') {
         const session = args && typeof args.session === 'string' ? args.session : visibleSession();
         const url = String((args && args.url) || '').trim();
-        if (session && url) pendingOpens.set(session, url);
+        if (session && url) pendingOpens.set(session, { url, at: Date.now() });
         return { ok: true, queued: Boolean(session && url), session };
       }
       const callerSession = args && typeof args.session === 'string' ? args.session : '';
@@ -753,7 +753,7 @@ window.__ModuleLoader__.load({
              queued for that session instead of driving the panel the user is
              looking at; the heartbeat replays it when they switch over. */
           const requested = resolveAddress(String((args && args.url) || ''));
-          if (requested) pendingOpens.set(callerSession, requested);
+          if (requested) pendingOpens.set(callerSession, { url: requested, at: Date.now() });
           return {
             error: 'inactive-session',
             queued: Boolean(requested),
@@ -801,7 +801,7 @@ window.__ModuleLoader__.load({
           view = await waitForWebview(15000, callerSession);
           /* Last resort: neither the session's pane nor openTabIn was available. */
           if (!view && callerSession && callerSession !== visibleSession()) {
-            pendingOpens.set(callerSession, target);
+            pendingOpens.set(callerSession, { url: target, at: Date.now() });
             return { error: 'inactive-session', queued: true, requestedSession: callerSession, visibleSession: visibleSession(), hint: '这个会话的右侧栏还没挂载，页面已排队，切回该会话时会自动打开。' };
           }
         }
@@ -1261,7 +1261,11 @@ window.__ModuleLoader__.load({
       try {
         const session = visibleSession();
         if (!session || pendingOpens.size === 0) return;
-        const url = pendingOpens.get(session);
+        const entry = pendingOpens.get(session);
+        const url = entry && typeof entry === 'object' ? entry.url : entry;
+        const queuedAt = entry && typeof entry === 'object' ? Number(entry.at) || 0 : 0;
+        /* A queued page should not surprise the user hours later. */
+        if (queuedAt && Date.now() - queuedAt > 2 * 60 * 60 * 1000) { pendingOpens.delete(session); return; }
         if (!url) return;
         const owned = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === session);
         if (owned) { pendingOpens.delete(session); return; }

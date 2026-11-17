@@ -30,6 +30,7 @@ export const Config = z.object({
   cdpIdleDetachMs: z.natural().default(45000).description('空闲多少毫秒后断开 CDP（默认 45000；0 = 一直保持连接）。断开后下次操作会自动重连，避免长时间附着影响 Chromium 渲染节流'),
   homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
   profileRetentionDays: z.natural().default(14).description('headless 每会话 profile 保留天数；启动时清理更旧的目录（0 = 不清理）'),
+  maxHeadlessBrowsers: z.natural().default(3).description('headless 驱动同时保留的浏览器实例上限；超出按最久未用淘汰（多会话各一份 profile）'),
 });
 
 const EDGE_CANDIDATES = [
@@ -1343,15 +1344,34 @@ function createPooledHeadlessBrowser(config) {
     ? config.dataDir.trim()
     : path.join(os.homedir(), '.dsh', 'katt-browser');
   const instances = new Map();
+  const lastUsedAt = new Map();
   let current = '';
   const keyOf = (id) => String(id || '').replace(/[^\w.-]+/g, '_').slice(0, 96) || 'default';
   const instanceFor = (id) => {
     const key = keyOf(id);
     let instance = instances.get(key);
     if (instance === undefined) {
+      /* Cap concurrent Chromium processes: a long-running app can otherwise open
+         one per session and never let go. Least-recently-used goes first. */
+      const configured = Number(config.maxHeadlessBrowsers);
+      const max = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 3;
+      while (instances.size >= max) {
+        let oldest = '';
+        let oldestAt = Infinity;
+        for (const [candidate, usedAt] of lastUsedAt) {
+          if (candidate === key) continue;
+          if (usedAt < oldestAt) { oldestAt = usedAt; oldest = candidate; }
+        }
+        if (oldest === '') break;
+        const victim = instances.get(oldest);
+        instances.delete(oldest);
+        lastUsedAt.delete(oldest);
+        try { victim.dispose(); } catch (error) { /* already gone */ }
+      }
       instance = new BrowserSession({ ...config, dataDir: path.join(baseDir, 'sessions', key) });
       instances.set(key, instance);
     }
+    lastUsedAt.set(key, Date.now());
     return instance;
   };
   return new Proxy({}, {
@@ -1362,6 +1382,7 @@ function createPooledHeadlessBrowser(config) {
         return () => {
           for (const instance of instances.values()) { try { instance.dispose(); } catch {} }
           instances.clear();
+          lastUsedAt.clear();
         };
       }
       const instance = instanceFor(current);
