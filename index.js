@@ -1378,6 +1378,7 @@ function createPooledHeadlessBrowser(config) {
     get(_target, property) {
       if (property === 'setCallerSession') return (id) => { current = String(id || ''); };
       if (property === 'callerSession') return current;
+      if (property === 'instanceCount') return instances.size;
       if (property === 'dispose') {
         return () => {
           for (const instance of instances.values()) { try { instance.dispose(); } catch {} }
@@ -1574,6 +1575,7 @@ export function apply(ctx, config = {}) {
       homeUrl: (typeof config.homeUrl === 'string' && config.homeUrl.trim()) ? config.homeUrl.trim() : 'https://www.bing.com',
       driver: config.driver === 'headless' ? 'headless' : 'webview',
       maxHeadlessBrowsers: Number(config.maxHeadlessBrowsers) > 0 ? Math.floor(Number(config.maxHeadlessBrowsers)) : 3,
+      headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
     }, CORS_HEADERS);
       } catch (error) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);

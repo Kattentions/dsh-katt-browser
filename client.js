@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.35';
+    const VERSION = '0.9.36';
 
 
     const ORIGINS = [''];
@@ -49,6 +49,7 @@ window.__ModuleLoader__.load({
     let homeUrl = 'https://www.bing.com';
     let driverMode = 'webview';
     let maxHeadlessBrowsers = 3;
+    let headlessInstances = 0;
     let pageStateTimer = null;
     // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
     // viewing, and a tool call from another workspace must not open it in front of them.
@@ -1298,6 +1299,7 @@ window.__ModuleLoader__.load({
         if (reply && typeof reply.homeUrl === 'string' && reply.homeUrl !== '') homeUrl = reply.homeUrl;
       if (reply && typeof reply.driver === 'string' && reply.driver !== '') driverMode = reply.driver;
       if (reply && Number(reply.maxHeadlessBrowsers) > 0) maxHeadlessBrowsers = Math.floor(Number(reply.maxHeadlessBrowsers));
+      if (reply && Number(reply.headlessInstances) >= 0) headlessInstances = Math.floor(Number(reply.headlessInstances));
       }
       if (!view) return;
       const state = await stateOf(view);
@@ -1546,9 +1548,18 @@ window.__ModuleLoader__.load({
 
     function BrowserSettingsSection() {
       const [rows, setRows] = React.useState([]);
+      const [queued, setQueued] = React.useState([]);
       const [visible, setVisible] = React.useState('');
       const refresh = React.useCallback(() => {
         setRows(kattSettingsTabs());
+        const pending = [];
+        try {
+          for (const [sessionId, entry] of pendingOpens.entries()) {
+            const url = entry && typeof entry === 'object' ? String(entry.url || '') : String(entry || '');
+            pending.push({ sessionId, url });
+          }
+        } catch (error) { /* private to the running client instance */ }
+        setQueued(pending);
         try { setVisible(visibleSession()); } catch (error) { setVisible(''); }
       }, []);
       React.useEffect(() => {
@@ -1558,6 +1569,10 @@ window.__ModuleLoader__.load({
       }, [refresh]);
       const closeTab = (sessionId, tabId) => {
         try { const right = sidebarRight(); if (right && typeof right.closeIn === 'function') right.closeIn(sessionId, tabId); } catch (error) { /* gone */ }
+        window.setTimeout(refresh, 150);
+      };
+      const cancelQueued = (sessionId) => {
+        try { pendingOpens.delete(sessionId); } catch (error) { /* gone */ }
         window.setTimeout(refresh, 150);
       };
       const rowStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--dsw-alias-border-l1)', fontSize: 13 };
@@ -1572,17 +1587,28 @@ window.__ModuleLoader__.load({
             ),
             h('button', { onClick: () => closeTab(row.sessionId, row.tabId), style: buttonStyle }, '关闭')
           )));
+      const queuedView = queued.length === 0
+        ? null
+        : h('div', null,
+            h('h3', { style: { margin: '4px 0 0', fontSize: 13, fontWeight: 600 } }, '排队中的页面'),
+            h('p', { style: metaStyle }, '发起工具时那个会话的右侧栏不可见，页面先排队；切回该会话时自动打开（2 小时内有效）。'),
+            queued.map((entry) => h('div', { key: 'queued-' + entry.sessionId, style: rowStyle },
+              h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+                h('span', { style: { fontWeight: 500 } }, entry.url || '（无网址）'),
+                h('span', { style: metaStyle }, entry.sessionId.slice(0, 26))),
+              h('button', { onClick: () => cancelQueued(entry.sessionId), style: buttonStyle }, '取消'))));
       return h('section',
         { style: { display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 720, padding: '8px 0', color: 'var(--dsw-alias-label-primary)' } },
         h('h2', { style: { margin: 0, fontSize: 18, fontWeight: 600 } }, '浏览器'),
         h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
           '所有会话的侧栏浏览器标签页。标签按会话隔离，关掉别的会话里遗留的标签不会影响当前会话正在看的页面。'),
         h('p', { style: { margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
-          '驱动：' + (driverMode === 'headless' ? '无头浏览器（每会话独立 profile，实例上限 ' + maxHeadlessBrowsers + '）' : '侧栏 webview') + ' · 首页：' + homeUrl),
+          '驱动：' + (driverMode === 'headless' ? '无头浏览器（每会话独立 profile，当前 ' + headlessInstances + '/' + maxHeadlessBrowsers + ' 个实例）' : '侧栏 webview') + ' · 首页：' + homeUrl),
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } },
-          h('span', null, '当前会话：' + (visible ? visible.slice(0, 22) + '…' : '未知') + ' · ' + rows.length + ' 个标签页'),
+          h('span', null, '当前会话：' + (visible ? visible.slice(0, 22) + '…' : '未知') + ' · ' + rows.length + ' 个标签页' + (queued.length ? ' · 排队 ' + queued.length + ' 个' : '')),
           h('button', { onClick: refresh, style: buttonStyle }, '刷新')),
         rowsView,
+        queuedView,
       );
     }
 
