@@ -974,6 +974,39 @@ class BrowserSession {
 
 /* ---------------------------------------------------------------- tool defs */
 
+/** Human labels for a session (title + workspace) from the Host session store. */
+function describeSession(ctx, id) {
+  try {
+    const session = ctx.sessions && typeof ctx.sessions.get === 'function' ? ctx.sessions.get(id) : undefined;
+    if (!session) return { title: '', workspace: '' };
+    const cwd = session.header && typeof session.header.cwd === 'string' ? session.header.cwd : '';
+    const workspace = cwd === '' ? '' : (String(cwd).split(/[\\/]/).filter(Boolean).pop() || '');
+    let title = '';
+    try {
+      const titlesService = typeof ctx.get === 'function' ? ctx.get('sessionTitle') : null;
+      const snapshot = titlesService && typeof titlesService.get === 'function' ? titlesService.get(session) : undefined;
+      title = (typeof snapshot === 'string' ? snapshot : snapshot && (snapshot.title || snapshot.text || snapshot.label) || '').trim();
+    } catch (error) { title = ''; }
+    return { title, workspace };
+  } catch (error) { return { title: '', workspace: '' }; }
+}
+
+/** Add session titles/workspaces to cross-session tab lists so reports are readable. */
+function enrichToolResult(toolName, result, ctx) {
+  if (toolName !== 'browser_tabs' || !result || !Array.isArray(result.tabs)) return result;
+  const cache = new Map();
+  return {
+    ...result,
+    tabs: result.tabs.map((tab) => {
+      const sessionId = String((tab && tab.sessionId) || '');
+      if (sessionId === '') return tab;
+      if (!cache.has(sessionId)) cache.set(sessionId, describeSession(ctx, sessionId));
+      const meta = cache.get(sessionId);
+      return { ...tab, sessionTitle: meta.title, workspace: meta.workspace };
+    }),
+  };
+}
+
 function buildTools(browser) {
   const text = (value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }];
   const output = { schema: { type: 'object' }, render: (_args, value) => text(value) };
@@ -1790,7 +1823,7 @@ export function apply(ctx, config = {}) {
               if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs' && tool.name !== 'browser_probe' && tool.name !== 'browser_doctor') return denied;
             }
           } catch {}
-          return execute(args);
+          return enrichToolResult(tool.name, await execute(args), ctx);
         },
       }));
     }

@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.55
+
+- `browser_tabs list` 的每个标签页多两个字段：`sessionTitle`、`workspace`（来自宿主 session store 的标题和 `header.cwd` 末段）。实测输出：tab156 → 临时 / 新建文件夹，tab57 → FEMA / FEMA，tab102 → NSGA / IE-NSGA-III；拿不到信息的会话留空，不影响原有字段。
+- 这样 agent 侧看跨会话标签页也能直接说「FEMA 工作区那个标签」，不用再对照 session id。
+
 ## 0.9.54
 
 - 设置 → 浏览器列表现在显示「会话标题 · 工作区名 · 页面标题」，例如「临时 · 新建文件夹 · 浏览器标签页」「FEMA · FEMA · 浏览器标签页」「NSGA · IE-NSGA-III · 浏览器标签页」。宿主在 probe 回复里加了 `sessionMeta`（标题 + `session.header.cwd`），排队行也带同样的标签。
