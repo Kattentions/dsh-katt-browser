@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.57
+
+- 打包修正：`scripts/check-contracts.mjs` 之前没进 npm 包，而 README 又让你 `npm run check`——从 npm 装的人跑会找不到文件。现在 `files` 加了 `scripts/**`，解包实测 `node scripts/check-contracts.mjs` 直接通过。
+- 顺带核对了包内容：共 20 个文件（含 docs 图和 locale），tgz 275 KB，没有调试残留。
+
 ## 0.9.56
 
 - 修「重载后第一条浏览器命令超时」：插件或页面刚重载时客户端还没挂上命令轮询，第一次调用会超时，虽然没坏但体验上像卡住。现在 bridge 层对**只读命令**（probe/tabs/snapshot/page-diag/sweep/focus/expand/reveal/zoom）在超时后自动延迟 700ms 重试一次；点击、输入、打开、关闭等有副作用的命令不重试，避免双触发。
