@@ -30,6 +30,7 @@ export const Config = z.object({
   cdpIdleDetachMs: z.natural().default(45000).description('空闲多少毫秒后断开 CDP（默认 45000；0 = 一直保持连接）。断开后下次操作会自动重连，避免长时间附着影响 Chromium 渲染节流'),
   homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
   profileRetentionDays: z.natural().default(14).description('headless 每会话 profile 保留天数；启动时清理更旧的目录（0 = 不清理）'),
+  restoreLastPage: z.boolean().default(true).description('每个会话记住最后打开的页面；新开浏览器标签时恢复它而不是永远回到首页'),
   maxHeadlessBrowsers: z.natural().default(3).description('headless 驱动同时保留的浏览器实例上限；超出按最久未用淘汰（多会话各一份 profile）'),
 });
 
@@ -975,7 +976,16 @@ function buildTools(browser) {
       }),
       output,
       execute: async (args) => {
-        const wanted = args && args.url ? String(args.url).trim() : '';
+        let wanted = args && args.url ? String(args.url).trim() : '';
+        if (wanted === '') {
+          /* "Open the browser" restores this session's last page when the user asked
+             for no particular URL; homeUrl is only the first-run fallback. */
+          try {
+            if (browser.restoreLastPage !== false && browser.sessionPages) {
+              wanted = String(browser.sessionPages.get(browser.callerSession) || '');
+            }
+          } catch (error) { /* fall back to home */ }
+        }
         const state = await browser.navigate(wanted, { waitFor: args && args.waitFor, waitMs: args && args.waitMs });
         return { ...state, barriers: await browser.barriers?.().catch(() => null) };
       },
@@ -1101,6 +1111,8 @@ function buildTools(browser) {
         await browser.refreshProbe().catch(() => null);
         return {
           callerSession: browser.callerSession || '',
+          restoreLastPage: browser.restoreLastPage !== false,
+          lastPages: browser.sessionPages ? Object.fromEntries(browser.sessionPages) : {},
           driver: browser.diagnostics || null,
           panel: browser.probe
             ? { ...browser.probe, state: browser.state }
@@ -1400,6 +1412,30 @@ export function apply(ctx, config = {}) {
   const webview = pageWebview ? new HybridSession(config, pageWebview) : null;
   const bridge = pageWebview ? pageWebview.bridge : null;
   const browser = headless || webview;
+  /* The tool layer reuses the same page memory for browser_open without a url. */
+
+  /* Each session remembers its last page so reopening the browser (or a new tab)
+     lands where the user left off, not on a generic home page. */
+  const dataRoot = typeof config.dataDir === 'string' && config.dataDir.trim()
+    ? config.dataDir.trim()
+    : path.join(os.homedir(), '.dsh', 'katt-browser');
+  const sessionPagesFile = path.join(dataRoot, 'session-pages.json');
+  const sessionPages = (() => {
+    try {
+      const raw = JSON.parse(readFileSync(sessionPagesFile, 'utf8'));
+      return raw && typeof raw === 'object' ? new Map(Object.entries(raw)) : new Map();
+    } catch (error) { return new Map(); }
+  })();
+  try { if (webview) { webview.sessionPages = sessionPages; webview.restoreLastPage = config.restoreLastPage !== false; } } catch (error) { /* optional */ }
+  const rememberPage = (sessionId, url) => {
+    if (typeof sessionId !== 'string' || sessionId === '' || typeof url !== 'string' || url === '') return;
+    if (sessionPages.get(sessionId) === url) return;
+    sessionPages.set(sessionId, url);
+    try {
+      mkdirSync(dataRoot, { recursive: true });
+      writeFileSync(sessionPagesFile, JSON.stringify(Object.fromEntries(sessionPages), null, 2), 'utf8');
+    } catch (error) { /* memory only */ }
+  };
 
   const diagnostics = () => {
     if (headless) {
@@ -1560,6 +1596,7 @@ export function apply(ctx, config = {}) {
       try {
         const body = await readJsonBody(req);
         if (bridge && bridge.accepts(body.v)) bridge.setPageState(body);
+        if (config.restoreLastPage !== false && body && typeof body.session === 'string') rememberPage(body.session, String(body.url || ''));
         sendJson(res, 200, { ok: true }, CORS_HEADERS);
       } catch (error) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);
@@ -1576,6 +1613,8 @@ export function apply(ctx, config = {}) {
       driver: config.driver === 'headless' ? 'headless' : 'webview',
       maxHeadlessBrowsers: Number(config.maxHeadlessBrowsers) > 0 ? Math.floor(Number(config.maxHeadlessBrowsers)) : 3,
       headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
+      restoreLastPage: config.restoreLastPage !== false,
+      lastPages: config.restoreLastPage === false ? {} : Object.fromEntries(sessionPages),
     }, CORS_HEADERS);
       } catch (error) {
         sendJson(res, 500, { error: String(error?.message || error) }, CORS_HEADERS);

@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.37';
+    const VERSION = '0.9.38';
 
 
     const ORIGINS = [''];
@@ -51,6 +51,8 @@ window.__ModuleLoader__.load({
        The Host sends the configured value back with every probe reply. */
     let homeUrl = 'https://www.bing.com';
     let driverMode = 'webview';
+    let restoreLastPage = true;
+    let lastPages = {};
     let maxHeadlessBrowsers = 3;
     let headlessInstances = 0;
     let pageStateTimer = null;
@@ -592,6 +594,17 @@ window.__ModuleLoader__.load({
      * just an address box. Fill the configured home in two ways: inject params.url
      * into openTab calls, and as a fallback submit the guide tab's address box.
      */
+    /** Where a fresh browser tab should go for the current session. */
+    function defaultPage() {
+      if (restoreLastPage) {
+        try {
+          const saved = lastPages[visibleSession()];
+          if (typeof saved === 'string' && saved !== '') return saved;
+        } catch (error) { /* fall back to home */ }
+      }
+      return homeUrl;
+    }
+
     function installHomeTabDefault() {
       try {
         const right = pluginCtx && typeof pluginCtx.get === 'function' ? pluginCtx.get('sidebarRight') : null;
@@ -602,7 +615,7 @@ window.__ModuleLoader__.load({
             if (kind !== 'browser') return original.call(this, kind, options);
             const next = options && typeof options === 'object' ? { ...options } : {};
             const params = next.params && typeof next.params === 'object' ? { ...next.params } : {};
-            if (typeof params.url !== 'string' || params.url.trim() === '') params.url = homeUrl;
+            if (typeof params.url !== 'string' || params.url.trim() === '') params.url = defaultPage();
             next.params = params;
             return original.call(this, kind, next);
           };
@@ -617,10 +630,10 @@ window.__ModuleLoader__.load({
           if (!input.isConnected) return;
           input.focus();
           if (props && typeof props.onChange === 'function') {
-            props.onChange({ target: { value: homeUrl }, currentTarget: { value: homeUrl } });
+            props.onChange({ target: { value: defaultPage() }, currentTarget: { value: defaultPage() } });
           } else {
             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, homeUrl);
+            setter.call(input, defaultPage());
             input.dispatchEvent(new Event('input', { bubbles: true }));
           }
           setTimeout(() => {
@@ -1330,13 +1343,15 @@ window.__ModuleLoader__.load({
       if (reply && typeof reply.driver === 'string' && reply.driver !== '') driverMode = reply.driver;
       if (reply && Number(reply.maxHeadlessBrowsers) > 0) maxHeadlessBrowsers = Math.floor(Number(reply.maxHeadlessBrowsers));
       if (reply && Number(reply.headlessInstances) >= 0) headlessInstances = Math.floor(Number(reply.headlessInstances));
+      if (reply && typeof reply.restoreLastPage === 'boolean') restoreLastPage = reply.restoreLastPage;
+      if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
       }
       if (!view) return;
       const state = await stateOf(view);
       const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
       if (stateKey === lastStateKey) return;
       lastStateKey = stateKey;
-      await post(PAGE_STATE_URL, { ...state, v: VERSION });
+      await post(PAGE_STATE_URL, { ...state, session: visibleSession(), v: VERSION });
     }
 
     /* ---- panel chrome ----
