@@ -180,7 +180,9 @@ session that invoked them, and never navigate a page another session is showing.
 
 ## Development check
 
-`npm run check` compares every `browser.xxx()` call the tools make against the methods each driver implements (webview and headless) and fails on any gap. The headless driver stayed broken for weeks precisely because nobody had this: it implemented 25 methods while the tools called 39.
+`npm run check` compares every `browser.xxx()` call the tools make against the methods each driver implements (webview and headless) and fails on any gap.
+
+The same command runs a session-boundary check: client code that iterates all tabs or webviews and then closes, activates or navigates must show session scoping (`ownerSession` / `callerSession` / `visibleSession`); otherwise it fails. Hidden sessions mount no webview by design, so without this rule their tabs look dead and get swept. The headless driver stayed broken for weeks precisely because nobody had this: it implemented 25 methods while the tools called 39.
 
 ## License
 

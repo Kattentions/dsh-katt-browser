@@ -193,7 +193,9 @@ browser_cookies load name=work   -> storageRestored: true
 
 ## 开发自检
 
-工具与驱动之间有静态契约检查：`npm run check` 会扫出所有 `browser.xxx()` 调用，逐个驱动（webview / headless）对比实际实现的方法，缺一个就报错。headless 驱动之前坏了很久就是因为没有这个检查——它只实现了 25 个方法而工具调用 39 个。
+工具与驱动之间有静态契约检查：`npm run check` 会扫出所有 `browser.xxx()` 调用，逐个驱动（webview / headless）对比实际实现的方法，缺一个就报错。
+
+同一条命令还会跑会话边界检查：客户端里凡是遍历全部标签/webview 再执行关闭、激活、导航这类动作的地方，扫描时若看不到按会话过滤的代码（`ownerSession` / `callerSession` / `visibleSession` 等）就报错。隐藏会话本来就不挂 webview，没有这条规则很容易把别的会话的标签当成死标签清掉。headless 驱动之前坏了很久就是因为没有这个检查——它只实现了 25 个方法而工具调用 39 个。
 
 ## 许可
 

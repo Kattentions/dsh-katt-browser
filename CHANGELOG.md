@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.9.66
+
+- 新增 `scripts/check-boundaries.mjs` 并把 `npm run check` 串成「契约检查 + 会话边界检查」：扫 client.js 里遍历全部 webview/标签的语句，附近出现关闭、激活、导航且看不到按会话过滤（`ownerSession` / `callerSession` / `visibleSession`、`=== session` 等）就失败。纯列表/映射读取不算。
+- 负向验证：临时造一个没有会话过滤、直接 `closeIn` 的 6 行文件，脚本正确报错并退出 1；当前 client.js 扫描 1852 行通过。
+- README（中英）开发自检小节补上这条规则：隐藏会话不挂 webview，没有会话过滤的清理会把别的会话标签当死标签删掉。
+
+
 ## 0.9.65
 
 - 把「清理/展开/聚焦」这几处还在跨会话动手的逻辑一并收口：
