@@ -32,6 +32,7 @@ export const Config = z.object({
   homeUrl: z.string().default('https://www.bing.com').description('没有指定页面时默认打开的网址（默认 Bing）；browser_open 不带 url、headless 启动的首页都用它'),
   profileRetentionDays: z.natural().default(14).description('headless 每会话 profile 保留天数；启动时清理更旧的目录（0 = 不清理）'),
   restoreLastPage: z.boolean().default(true).description('每个会话记住最后打开的页面；新开浏览器标签时恢复它而不是永远回到首页'),
+  suspendOnLeave: z.boolean().default(true).description('切走某个会话时，如果它的浏览器空闲就关闭以省内存；切回来恢复标签和滚动位置（后台任务中的会话不关）'),
   maxHeadlessBrowsers: z.natural().default(3).description('headless 驱动同时保留的浏览器实例上限；超出按最久未用淘汰（多会话各一份 profile）'),
 });
 
@@ -1767,6 +1768,7 @@ export function apply(ctx, config = {}) {
       })(),
       headlessInstances: driver === 'headless' ? Number(browser.instanceCount || 0) : 0,
       restoreLastPage: config.restoreLastPage !== false,
+      suspendOnLeave: config.suspendOnLeave !== false,
       lastPages: config.restoreLastPage === false ? {} : Object.fromEntries(sessionPages),
     }, CORS_HEADERS);
       } catch (error) {

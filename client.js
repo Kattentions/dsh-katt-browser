@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.67';
+    const VERSION = '0.9.68';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -78,9 +78,181 @@ window.__ModuleLoader__.load({
     let headlessInstances = 0;
     let pageStateTimer = null;
     let replayTimer = null;
+    let visibilityTimer = null;
     // Revealing the sidebar is opt-in: the panel belongs to whichever session the user is
     // viewing, and a tool call from another workspace must not open it in front of them.
     let revealPanel = false;
+
+    /* ---- per-session browser lifecycle -------------------------------------
+       Each session keeps its own browser history. When the user switches away
+       from a session whose browser is idle, the panel is closed to free memory;
+       switching back restores the same tabs, active page and scroll position.
+       A session with a tool call, a loading page or a queued open keeps running
+       in the background instead of being suspended. */
+    const suspendStorageKey = 'katt-suspended-sessions-v1';
+    const sessionSnapshots = new Map();
+    const sessionBusy = new Map();
+    const suspendLog = [];
+    let suspendEnabled = true;
+    let lastVisibleSessionSeen = '';
+    const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function loadSuspendedSnapshots() {
+      try {
+        const raw = localStorage.getItem(suspendStorageKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        for (const entry of Array.isArray(parsed) ? parsed : []) {
+          if (Array.isArray(entry) && entry.length === 2 && entry[1] && Array.isArray(entry[1].tabs)) {
+            sessionSnapshots.set(String(entry[0]), entry[1]);
+          }
+        }
+      } catch (error) { /* storage is best effort */ }
+    }
+
+    function saveSuspendedSnapshots() {
+      try {
+        localStorage.setItem(suspendStorageKey, JSON.stringify([...sessionSnapshots.entries()]));
+      } catch (error) { /* storage is best effort */ }
+    }
+
+    function markSessionBusy(session, delta) {
+      if (!session) return;
+      const next = Math.max(0, (sessionBusy.get(session) || 0) + delta);
+      if (next === 0) sessionBusy.delete(session);
+      else sessionBusy.set(session, next);
+    }
+
+    function viewOfTab(session, tabId) {
+      return [...document.querySelectorAll('webview')].find((view) => ownerSession(view) === session && tabIdOf(view) === tabId) || null;
+    }
+
+    function sessionPageLoading(session) {
+      return [...document.querySelectorAll('webview')].some((view) => {
+        if (ownerSession(view) !== session) return false;
+        try { return typeof view.isLoading === 'function' ? Boolean(view.isLoading()) : false; } catch (error) { return false; }
+      });
+    }
+
+    function isSessionBusy(session) {
+      if (!session) return false;
+      if ((sessionBusy.get(session) || 0) > 0) return true;
+      if (pendingOpens.has(session)) return true;
+      return sessionPageLoading(session);
+    }
+
+    /** Snapshot the session's tabs (URL + scroll), then close them to free memory. */
+    async function suspendSession(session) {
+      if (!suspendEnabled || !session) return { skipped: 'disabled' };
+      if (isSessionBusy(session)) return { skipped: 'busy' };
+      const tabs = browserTabs().filter((tab) => tab.sessionId === session);
+      if (tabs.length === 0) return { skipped: 'no-tabs' };
+      const snapshot = { tabs: [], activeUrl: '', at: Date.now() };
+      for (const tab of tabs) {
+        const view = viewOfTab(session, tab.tabId);
+        let url = '';
+        let scroll = 0;
+        if (view) {
+          try { url = String(view.getURL() || ''); } catch (error) { url = ''; }
+          try {
+            const chip = tabChip(tab.tabId);
+            if (chip && chip.getAttribute('aria-selected') === 'true') snapshot.activeUrl = url;
+          } catch (error) { /* chip state is best effort */ }
+          try { scroll = Number(await view.executeJavaScript('window.scrollY')) || 0; } catch (error) { scroll = 0; }
+        }
+        if (!url) {
+          const memory = tabMemory.get(tabKeyOf(tab));
+          if (memory && memory.url) url = String(memory.url);
+        }
+        snapshot.tabs.push({ url, scroll });
+      }
+      if (!snapshot.tabs.some((item) => item.url)) {
+        const fallback = String(lastPages[session] || '');
+        if (fallback !== '') snapshot.tabs = [{ url: fallback, scroll: 0 }];
+      }
+      if (snapshot.activeUrl === '' && snapshot.tabs[0]) snapshot.activeUrl = snapshot.tabs[0].url;
+      if (!snapshot.tabs.some((item) => item.url)) return { skipped: 'no-url' };
+      sessionSnapshots.set(session, snapshot);
+      saveSuspendedSnapshots();
+      const right = sidebarRight();
+      let closed = 0;
+      if (right && typeof right.closeIn === 'function') {
+        for (const tab of tabs) {
+          try { right.closeIn(session, tab.tabId); closed += 1; } catch (error) { /* already gone */ }
+          await sleepMs(30);
+        }
+      }
+      return { suspended: snapshot.tabs.length, closed };
+    }
+
+    /** Reopen the saved tabs of the session the user just switched back to. */
+    async function restoreSuspendedSession(session) {
+      const snapshot = sessionSnapshots.get(session);
+      if (!snapshot) return { skipped: 'none' };
+      if (visibleSession() !== session) return { skipped: 'not-visible' };
+      const right = sidebarRight();
+      if (!right || typeof right.openTab !== 'function') return { skipped: 'no-panel' };
+      sessionSnapshots.delete(session);
+      saveSuspendedSnapshots();
+      const urls = [];
+      for (const item of snapshot.tabs) {
+        if (item.url && urls.indexOf(item.url) < 0) urls.push(item.url);
+      }
+      if (urls.length === 0) return { skipped: 'empty' };
+      for (const url of urls) {
+        try { right.openTab('browser', { params: { url } }); } catch (error) { /* try the rest */ }
+        await sleepMs(350);
+      }
+      /* Give the last tab a moment, then make the previously active page active again. */
+      await sleepMs(600);
+      try {
+        const wanted = String(snapshot.activeUrl || '');
+        const tabs = browserTabs().filter((tab) => tab.sessionId === session);
+        let activeTab = null;
+        for (const tab of tabs) {
+          const view = await waitForTabView(session, tab.tabId, 4000);
+          const url = view ? String(view.getURL() || '') : '';
+          if (wanted !== '' && url === wanted) { activeTab = { tab, view }; break; }
+        }
+        if (activeTab) {
+          await activateTab(activeTab.tab.tabId);
+          const saved = snapshot.tabs.find((item) => item.url === wanted);
+          const scroll = saved ? Number(saved.scroll) || 0 : 0;
+          if (scroll > 0) {
+            await sleepMs(500);
+            try { await activeTab.view.executeJavaScript('window.scrollTo(0, ' + Math.round(scroll) + ')'); } catch (error) { /* ignore */ }
+          }
+        }
+      } catch (error) { /* restore is best effort */ }
+      return { restored: urls.length, active: snapshot.activeUrl || '' };
+    }
+
+    async function waitForTabView(session, tabId, timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const view = viewOfTab(session, tabId);
+        if (view) return view;
+        await sleepMs(120);
+      }
+      return null;
+    }
+
+    /** Called from the heartbeat: suspend the session left behind, restore the one entered. */
+    function handleVisibleSessionChange() {
+      const current = visibleSession();
+      if (!current) return;
+      if (lastVisibleSessionSeen === '') { lastVisibleSessionSeen = current; restoreSuspendedSession(current).catch(() => {}); return; }
+      if (current === lastVisibleSessionSeen) return;
+      const previous = lastVisibleSessionSeen;
+      lastVisibleSessionSeen = current;
+      const entry = { from: previous, to: current, at: Date.now() };
+      suspendLog.push(entry);
+      while (suspendLog.length > 10) suspendLog.shift();
+      suspendSession(previous).then((outcome) => { entry.outcome = outcome; }).catch(() => {});
+      restoreSuspendedSession(current).catch(() => {});
+    }
+
+    loadSuspendedSnapshots();
 
     const sidebarRight = () => {
       try {
@@ -811,6 +983,16 @@ window.__ModuleLoader__.load({
     }
 
     async function runCommand(op, args) {
+      const busySession = String((args && args.session) || '');
+      if (busySession !== '') markSessionBusy(busySession, 1);
+      try {
+        return await runCommandInner(op, args);
+      } finally {
+        if (busySession !== '') markSessionBusy(busySession, -1);
+      }
+    }
+
+    async function runCommandInner(op, args) {
 
       /* Drop a queued page: with a session id only that entry, without one the
          whole queue. */
@@ -1354,7 +1536,7 @@ window.__ModuleLoader__.load({
 
     function diagnose() {
       // Compact on purpose: this rides along with browser_state/browser_probe results.
-      const out = { version: VERSION, generation: bridgeGeneration };
+      const out = { version: VERSION, generation: bridgeGeneration, suspend: { enabled: suspendEnabled, suspended: sessionSnapshots.size, busy: sessionBusy.size, lastSwitch: suspendLog.slice(-3) } };
       try {
         const views = [...document.querySelectorAll('webview')];
         out.webviews = views.length;
@@ -1433,6 +1615,7 @@ window.__ModuleLoader__.load({
 
     async function heartbeat() {
       if (!canHostPanel) return;
+      try { handleVisibleSessionChange(); } catch (error) { /* next tick */ }
       /* Remember URL/title for every mounted tab; prune tabs that are gone. */
       try {
         for (const view of document.querySelectorAll('webview')) {
@@ -1476,6 +1659,7 @@ window.__ModuleLoader__.load({
       if (reply && Number(reply.maxHeadlessBrowsers) > 0) maxHeadlessBrowsers = Math.floor(Number(reply.maxHeadlessBrowsers));
       if (reply && Number(reply.headlessInstances) >= 0) headlessInstances = Math.floor(Number(reply.headlessInstances));
       if (reply && typeof reply.restoreLastPage === 'boolean') restoreLastPage = reply.restoreLastPage;
+      if (reply && typeof reply.suspendOnLeave === 'boolean') suspendEnabled = reply.suspendOnLeave;
       if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
       if (reply && reply.sessionTitles && typeof reply.sessionTitles === 'object') sessionTitles = reply.sessionTitles;
       if (reply && reply.sessionMeta && typeof reply.sessionMeta === 'object') sessionMeta = reply.sessionMeta;
@@ -1789,7 +1973,7 @@ window.__ModuleLoader__.load({
         h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
           '所有会话的侧栏浏览器标签页。标签按会话隔离，关掉别的会话里遗留的标签不会影响当前会话正在看的页面。'),
         h('p', { style: { margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' } },
-          '驱动：' + (driverMode === 'headless' ? '无头浏览器（每会话独立 profile，当前 ' + headlessInstances + '/' + maxHeadlessBrowsers + ' 个实例）' : '侧栏 webview') + ' · 首页：' + homeUrl),
+          '驱动：' + (driverMode === 'headless' ? '无头浏览器（每会话独立 profile，当前 ' + headlessInstances + '/' + maxHeadlessBrowsers + ' 个实例）' : '侧栏 webview') + ' · 首页：' + homeUrl + (() => { try { const suspended = diagnose().suspend; return suspended && suspended.suspended > 0 ? ' · 已挂起 ' + suspended.suspended + ' 个会话' : ''; } catch (error) { return ''; } })()),
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--dsw-alias-label-secondary)' } },
           h('span', null, '当前会话：' + (visible ? visible.slice(0, 22) + '…' : '未知') + ' · ' + rows.length + ' 个标签页' + (queued.length ? ' · 排队 ' + queued.length + ' 个' : '')),
           h('button', { onClick: refresh, style: buttonStyle }, '刷新')),
@@ -1837,9 +2021,15 @@ window.__ModuleLoader__.load({
         replayTimer = setInterval(() => {
           try { if (pendingOpens.size > 0) replayPendingOpen(); } catch (error) { /* retry next tick */ }
         }, 2000);
+        /* Session switches should be noticed in about a second, not on the 8s heartbeat. */
+        if (visibilityTimer) clearInterval(visibilityTimer);
+        visibilityTimer = setInterval(() => {
+          try { handleVisibleSessionChange(); } catch (error) { /* next tick */ }
+        }, 1500);
         ctx.effect(() => () => {
           clearInterval(pageStateTimer);
           if (replayTimer) clearInterval(replayTimer);
+          if (visibilityTimer) clearInterval(visibilityTimer);
           pollStopped = true;
           if (typeof window !== 'undefined' && window.__kattBrowserChromeStop) window.__kattBrowserChromeStop();
           if (typeof window !== 'undefined' && window.__kattFileOpenInterceptorStop) window.__kattFileOpenInterceptorStop();

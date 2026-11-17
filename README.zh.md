@@ -102,6 +102,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
     homeUrl: https://www.bing.com  # 首次打开、没有历史页时的默认首页
     dataDir: ""            # headless 与页面记忆的根目录，默认 ~/.dsh/katt-browser
     restoreLastPage: true  # 每个会话记住最后打开的页面，新标签/Ctrl+T/重启后恢复
+suspendOnLeave: true  # 切走空闲会话时关闭其浏览器省内存，切回来恢复标签和滚动位置
     profileRetentionDays: 14  # headless 每会话 profile 保留天数，启动时清理更旧的
     maxHeadlessBrowsers: 3    # headless 同时保留的实例上限，超出按最久未用淘汰
 

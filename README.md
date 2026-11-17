@@ -103,6 +103,7 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
     homeUrl: https://www.bing.com  # first-run page when a session has no history yet
     dataDir: ""            # root for headless profiles and page memory, defaults to ~/.dsh/katt-browser
     restoreLastPage: true  # remember each session's page; restore it on new tab / Ctrl+T / restart
+suspendOnLeave: true  # close an idle session browser on switch-away; restore tabs and scroll on return
     profileRetentionDays: 14  # prune headless session profiles older than this many days
     maxHeadlessBrowsers: 3    # concurrent headless instances, LRU-evicted beyond this
 
