@@ -99,6 +99,11 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
     revealPanel: false     # true = 工具操作时允许展开侧栏（默认关闭）
     cdpIdleDetachMs: 45000 # 空闲多少毫秒断开 CDP（默认 45000；0 = 不断开）
     instrument: true       # false = 重页面跳过插桩
+    homeUrl: https://www.bing.com  # 首次打开、没有历史页时的默认首页
+    dataDir: ""            # headless 与页面记忆的根目录，默认 ~/.dsh/katt-browser
+    restoreLastPage: true  # 每个会话记住最后打开的页面，新标签/Ctrl+T/重启后恢复
+    profileRetentionDays: 14  # headless 每会话 profile 保留天数，启动时清理更旧的
+    maxHeadlessBrowsers: 3    # headless 同时保留的实例上限，超出按最久未用淘汰
 
 ## 给 agent 的能力
 
@@ -166,9 +171,15 @@ browser_cookies load name=work   -> storageRestored: true
 - **心跳**：2.5 秒 → 8 秒；数据没变化或窗口不可见时完全不发。
 - **插桩**：只对 256KB 以内的 JSON 响应取预览；重页面可以 `instrument: false` 关掉页面钩子。
 
-### 面板可见性（多工作区）
+### 多会话与多工作区
 
-工具操作不会主动展开或切换右侧栏：右侧栏属于你正在看的那个会话，其他工作区的操作不应该把它拉到前台。面板收起时，读页面（快照/文本/console/网络/Cookie）和导航都照常工作；真实鼠标/键盘输入需要面板展开，会返回 `panelHidden` 提示而不是静默失败。如果你确实想让工具展开面板，把配置里的 `revealPanel` 设成 `true`。
+右侧栏属于**每个会话自己**：工具只驱动发起工具那个会话的标签页，不会把别的会话正在看的页面导航走。会话之间互不可见、互不覆盖。
+
+- **后台打开会排队**：发起工具时那个会话的右侧栏不可见，页面先排进该会话（2 小时内有效），切回该会话会自动打开；`browser_tabs` 的 `queued` 字段能看到排队明细。
+- **设置 → 浏览器**：列出所有会话的标签页（标题、URL、是否当前会话）和排队中的页面，可以直接关闭/取消；headless 模式下还显示实时实例数。
+- **每会话页面记忆**：关掉标签、Ctrl+T 新开、或应用重启后，浏览器回到该会话上次的页面，而不是永远回到首页；`restoreLastPage: false` 可关掉。
+- **headless 驱动**：每会话一个独立浏览器实例与 profile（`dataDir/sessions/<sessionId>`），Cookie、历史、页面状态互不共享；实例数受 `maxHeadlessBrowsers` 限制。
+- **面板可见性**：工具操作不会主动展开或切换右侧栏。面板收起时，读页面（快照/文本/console/网络/Cookie）和导航照常工作；真实鼠标/键盘输入需要面板展开，会返回 `panelHidden` 提示而不是静默失败。想让工具展开面板，把 `revealPanel` 设成 `true`。
 
 ## 已知限制
 

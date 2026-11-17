@@ -100,6 +100,11 @@ dsh plugin --profile desktop add github:Kattentions/dsh-katt-browser
     revealPanel: false     # true = tool calls may open the sidebar (off by default)
     cdpIdleDetachMs: 45000 # detach CDP after this many idle ms (0 = stay attached)
     instrument: true       # false = skip page instrumentation on heavy sites
+    homeUrl: https://www.bing.com  # first-run page when a session has no history yet
+    dataDir: ""            # root for headless profiles and page memory, defaults to ~/.dsh/katt-browser
+    restoreLastPage: true  # remember each session's page; restore it on new tab / Ctrl+T / restart
+    profileRetentionDays: 14  # prune headless session profiles older than this many days
+    maxHeadlessBrowsers: 3    # concurrent headless instances, LRU-evicted beyond this
 
 ## What it gives the agent
 
@@ -152,13 +157,16 @@ A canvas game whose state never touches the DOM: `browser_instrument` reads the 
 - **Instrumentation**: previews only JSON bodies up to 256 KiB; `instrument: false` turns the
   page hooks off on heavy sites.
 
-### Panel visibility (multi-workspace)
+### Multi-session and multi-workspace
 
-Tool calls never open or switch the sidebar on their own: the right column belongs to whichever
-session you are looking at, and a call from another workspace must not pull it in front of you.
-Reading (snapshot, text, console, network, cookies) and navigation work with the panel collapsed;
-real mouse/keyboard input needs it open and returns a `panelHidden` hint instead of failing silently.
-Set `revealPanel: true` in the config if you *want* tools to reveal the panel.
+The right column belongs to **each session separately**: tools only drive the tabs of the
+session that invoked them, and never navigate a page another session is showing.
+
+- **Background opens queue up.** When the calling session's sidebar is not visible, the page is queued for that session (valid for 2 hours) and opens when you switch back; `browser_tabs` exposes the queue in its `queued` field.
+- **Settings → Browser** lists every session's tabs (title, URL, current session) and queued pages, with close/cancel buttons, plus driver and instance status.
+- **Per-session page memory**: closing the tab, pressing Ctrl+T or restarting the app returns that session to its last page instead of the home page. Turn off with `restoreLastPage: false`.
+- **headless driver**: one browser and profile per session (`dataDir/sessions/<sessionId>`); cookies, history and page state are never shared, and `maxHeadlessBrowsers` caps concurrency.
+- **Panel visibility**: tool calls never open or switch the sidebar on their own. Reading (snapshot, text, console, network, cookies) and navigation work with the panel collapsed; real mouse/keyboard input needs it open and returns a `panelHidden` hint instead of failing silently. Set `revealPanel: true` if you *want* tools to reveal it.
 
 ## Known limits
 
