@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.39';
+    const VERSION = '0.9.40';
 
 
     const ORIGINS = [''];
@@ -1287,6 +1287,13 @@ window.__ModuleLoader__.load({
         const firstView = document.querySelector('webview');
         out.activeViewSession = ownerSession(firstView);
         out.viewSessions = [...document.querySelectorAll('webview')].map(ownerSession);
+        out.viewStates = [...document.querySelectorAll('webview')].map((view) => {
+          let url = '';
+          let title = '';
+          try { url = typeof view.getURL === 'function' ? String(view.getURL() || '') : ''; } catch (error) { /* detached */ }
+          try { title = typeof view.getTitle === 'function' ? String(view.getTitle() || '') : ''; } catch (error) { /* detached */ }
+          return { sessionId: ownerSession(view), url, title };
+        });
       } catch {}
       try {
         // The shell assigns one non-persistent session partition per workspace; surface it so
