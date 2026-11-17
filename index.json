@@ -87,11 +87,11 @@
       "versions": [
         {
           "version": "0.4.15",
-          "publishTimestamp": 1794920461,
+          "publishTimestamp": 1794920523,
           "source": {
             "type": "git",
             "url": "https://github.com/Kattentions/dsh-mobile-bridge.git",
-            "commit": "1f95208be4fd0bf661d79c593275729620915b09"
+            "commit": "f57115e5a11d62eee3d33f0993582ed592d807c4"
           }
         }
       ]
