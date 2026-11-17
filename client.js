@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.42';
+    const VERSION = '0.9.43';
 
 
     const ORIGINS = [''];
@@ -1316,6 +1316,7 @@ window.__ModuleLoader__.load({
     }
 
     let lastProbeKey = '';
+    let lastProbeAt = 0;
     let lastStateKey = '';
     /** Replay one queued open when its own session becomes the visible one. */
     function replayPendingOpen() {
@@ -1356,7 +1357,7 @@ window.__ModuleLoader__.load({
       // Self-heal: the heartbeat proves the Host is up, so keep the command poll attached.
       if (!pollStarted && !pollStopped) pollLoop();
       // A background window has no one looking at the panel; skip the round trips entirely.
-      if (typeof document !== 'undefined' && document.hidden) return;
+      const hidden = typeof document !== 'undefined' && Boolean(document.hidden);
       const view = findWebview();
       // Install the bridge-side helpers (same-tab policy + clipboard shim) even when no tool
       // call has attached CDP yet, so copy buttons work while the user browses on their own.
@@ -1366,8 +1367,14 @@ window.__ModuleLoader__.load({
       // Only post when something actually changed: a quiet panel used to cost a POST every
       // 2.5s for identical data, and every reply woke the Host for nothing.
       const probeKey = JSON.stringify([probe.hasWebview, probe.count, probe.diagnose]);
-      if (probeKey !== lastProbeKey) {
+      /* Re-post even without changes: a Host plugin reload clears its probe state,
+         and the panel must reconnect without waiting for a visible change. A hidden
+         window keeps a slower cadence so it costs almost nothing. */
+      const interval = hidden ? 60000 : 15000;
+      const due = Date.now() - lastProbeAt > interval;
+      if (probeKey !== lastProbeKey || due) {
         lastProbeKey = probeKey;
+        lastProbeAt = Date.now();
         const reply = await post(PROBE_URL, probe);
         if (reply && typeof reply.homeUrl === 'string' && reply.homeUrl !== '') homeUrl = reply.homeUrl;
       if (reply && typeof reply.driver === 'string' && reply.driver !== '') driverMode = reply.driver;
@@ -1376,7 +1383,7 @@ window.__ModuleLoader__.load({
       if (reply && typeof reply.restoreLastPage === 'boolean') restoreLastPage = reply.restoreLastPage;
       if (reply && reply.lastPages && typeof reply.lastPages === 'object') lastPages = reply.lastPages;
       }
-      if (!view) return;
+      if (hidden || !view) return;
       const state = await stateOf(view);
       const stateKey = JSON.stringify([state.url, state.title, state.loading, state.ready, state.error, state.viewport]);
       if (stateKey === lastStateKey) return;

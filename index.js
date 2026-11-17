@@ -1121,6 +1121,46 @@ function buildTools(browser) {
       },
     },
     {
+      name: 'browser_doctor',
+      description: '一次检查多会话浏览器状态：发起会话归属、可见会话、自己有没有标签页、驱动模式、排队页与重放记录。遇到「页面串台/工具没反应」先跑这个。',
+      parameters: schema({}),
+      output,
+      execute: async () => {
+        const checks = [];
+        const add = (name, ok, detail) => checks.push({ check: name, ok: Boolean(ok), detail });
+        const caller = browser.callerSession || '';
+        await browser.refreshProbe().catch(() => null);
+        const probe = browser.probe || {};
+        const diagnose = probe.diagnose || {};
+        const visible = String(diagnose.visibleSession || '');
+        const views = Array.isArray(diagnose.viewStates) ? diagnose.viewStates : [];
+        add('attribution', caller !== '', caller === '' ? '拿不到发起会话 id，工具会被拒绝' : caller);
+        add('client-connected', Boolean(probe.at), probe.at ? (probe.hasWebview ? 'webview 已挂载' : '客户端已连接，还没有浏览器标签页（正常，open 时会创建）') : '客户端还没连上：刷新 DSH 页面或检查插件是否加载');
+        add('visible-session-known', visible !== '', visible || '客户端没有上报可见会话（刷新页面后重试）');
+        const own = views.filter((view) => view.sessionId === caller);
+        add('own-page', true, own.length ? '自己的标签页 ' + own.length + ' 个（' + (own[0].url || 'about:blank') + '）' : '当前会话没有自己的标签页：打开页面会走后台/排队，读页面需要这个会话自己的标签或 headless 驱动');
+        const diagnostics = browser.diagnostics || {};
+        add('driver-mode', true, diagnostics.mode === 'cdp' ? 'CDP 直连' : 'bridge（面板不可见或未就绪时正常）');
+        let tabs = { tabs: [], queued: [], replays: [] };
+        try { tabs = await browser.listTabs(false); } catch (error) {
+          add('tabs-op', false, String(error && error.message ? error.message : error));
+        }
+        if (Array.isArray(tabs && tabs.tabs)) add('tabs-op', true, tabs.tabs.length + ' 个标签页');
+        if (Array.isArray(tabs && tabs.queued)) add('queue', true, tabs.queued.length === 0 ? '没有排队页' : tabs.queued.length + ' 个排队页');
+        const failed = checks.filter((item) => !item.ok);
+        return {
+          verdict: failed.length === 0 ? 'ok' : 'attention',
+          callerSession: caller,
+          visibleSession: visible,
+          checks,
+          queued: (tabs && tabs.queued) || [],
+          replays: (tabs && tabs.replays) || [],
+          state: browser.state || null,
+        };
+      },
+    },
+
+    {
       name: 'browser_serve',
       description: '起/停本地 HTTP 静态服务。侧栏 webview 打不开 file://，本地页面用这个映射成 http://127.0.0.1:<port>/ 再打开。',
       parameters: schema({
@@ -1671,7 +1711,7 @@ export function apply(ctx, config = {}) {
               /* File opens use the same background placement path. */
               /* Tab management is cross-session by design: listing and closing a
                  stray tab from another session is how the user cleans things up. */
-              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs' && tool.name !== 'browser_probe') return denied;
+              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs' && tool.name !== 'browser_probe' && tool.name !== 'browser_doctor') return denied;
             }
           } catch {}
           return execute(args);
