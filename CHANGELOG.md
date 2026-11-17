@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.9.45
+
+- 做了一次「工具调用 ↔ 驱动方法」的静态契约审计：webview 的 HybridSession 覆盖全部 39 个被调用的方法；headless 在 0.9.44 补完后从 25 个增加到 52 个，连可选调用（`cancelQueued`、`diagnostics`、`setCallerSession`）也对上了，不再有「某工具在某个驱动下必然炸」的组合。
+- headless 补 `cancelQueued`（无排队，返回 ok + note）。
+
 ## 0.9.44
 
 修好了长期没被测过的 headless 驱动——它之前只能做最初那几个 CDP 动作，工具一多就 `TypeError: browser.x is not a function`：
