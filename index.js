@@ -1168,7 +1168,7 @@ function buildTools(browser) {
     },
     {
       name: 'browser_tabs',
-      description: '管理右侧栏的浏览器标签页。action=list 列出（closeExtras=true 顺手清理死标签）；switch 切换到 tabId 并绑定 CDP 目标；new 新建标签页并打开 url；close 关闭指定 tabId。',
+      description: '管理右侧栏的浏览器标签页（跨会话）。action=list 列出全部标签页及所属 sessionId、URL、是否属于当前可见会话（closeExtras=true 顺手清理死标签）；switch 切换到 tabId 并绑定 CDP 目标；new 新建标签页并打开 url；close 关闭指定 tabId —— 别的会话里遗留的标签页也可以在这里清掉。',
       parameters: schema({
         action: { type: 'string', enum: ['list', 'switch', 'new', 'close'], description: '要执行的操作，默认 list' },
         tabId: { type: 'string', description: 'switch/close 时必填，来自 list 结果' },
@@ -1588,7 +1588,9 @@ export function apply(ctx, config = {}) {
                  openTabIn, so let browser_open through and let the client place it.
                  Everything else is refused while another session owns the panel. */
               /* File opens use the same background placement path. */
-              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file') return denied;
+              /* Tab management is cross-session by design: listing and closing a
+                 stray tab from another session is how the user cleans things up. */
+              if (tool.name !== 'browser_open' && tool.name !== 'browser_open_file' && tool.name !== 'browser_tabs') return denied;
             }
           } catch {}
           return execute(args);

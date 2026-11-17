@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.30';
+    const VERSION = '0.9.31';
 
 
     const ORIGINS = [''];
@@ -1036,9 +1036,17 @@ window.__ModuleLoader__.load({
         const views = [...document.querySelectorAll('webview')];
         const keep = new Set(views.map((element) => tabIdOf(element)).filter(Boolean));
         const right = sidebarRight();
+        const visible = visibleSession();
         const describe = () => browserTabs().map((tab) => {
           const chip = tabChip(tab.tabId);
-          return { tabId: tab.tabId, title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) : '' };
+          const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
+          return {
+            tabId: tab.tabId,
+            sessionId: tab.sessionId || '',
+            visible: Boolean(tab.sessionId && visible && tab.sessionId === visible),
+            title: chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '',
+            url: typeof navigation.url === 'string' ? navigation.url.slice(0, 200) : '',
+          };
         });
         let closed = 0;
         if (close && right && typeof right.closeIn === 'function') {
@@ -1060,7 +1068,7 @@ window.__ModuleLoader__.load({
             await new Promise((resolve) => setTimeout(resolve, 60));
           }
         }
-        return { tabs: describe(), keep: [...keep], closed, remaining: browserTabs().length };
+        return { visibleSession: visible, tabs: describe(), keep: [...keep], closed, remaining: browserTabs().length };
       }
       if (op === 'sweep') {
         // Close empty browser tabs that earlier bootstraps left behind; keep the tab that
