@@ -51,11 +51,11 @@
       "versions": [
         {
           "version": "0.9.33",
-          "publishTimestamp": 1794906311,
+          "publishTimestamp": 1794907699,
           "source": {
             "type": "git",
             "url": "https://github.com/Kattentions/dsh-katt-browser.git",
-            "commit": "e07c52de443cc8e64e2f39b7deb6d173be75a134"
+            "commit": "0baad150bb842da28532760a3291d9eefedec38e"
           }
         }
       ]
