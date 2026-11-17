@@ -1530,14 +1530,10 @@ export function apply(ctx, config = {}) {
           try {
             const denied = typeof browser.guardSession === 'function' ? await browser.guardSession() : null;
             if (denied) {
-              /* The page belongs to the calling session, so keep the request for it
-                 instead of dropping it: the client opens it when the user switches
-                 back to that session. */
-              let queued = false;
-              if (tool.name === 'browser_open' && args && args.url && typeof browser.queueOpen === 'function') {
-                try { queued = await browser.queueOpen(String(args.url)); } catch (error) { queued = false; }
-              }
-              return queued ? { ...denied, queued: true, queuedUrl: String(args.url) } : denied;
+              /* Opening a page can land in the caller's own (hidden) browser tab via
+                 openTabIn, so let browser_open through and let the client place it.
+                 Everything else is refused while another session owns the panel. */
+              if (tool.name !== 'browser_open') return denied;
             }
           } catch {}
           return execute(args);

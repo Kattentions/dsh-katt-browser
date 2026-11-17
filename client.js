@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.26';
+    const VERSION = '0.9.27';
 
 
     const ORIGINS = [''];
@@ -739,20 +739,23 @@ window.__ModuleLoader__.load({
         if (session && url) pendingOpens.set(session, url);
         return { ok: true, queued: Boolean(session && url), session };
       }
-      /* A tool call from session A must not touch the panel showing session B: the
-         user is reading B, and the browser tab under it belongs to B. */
       const callerSession = args && typeof args.session === 'string' ? args.session : '';
-      /* What would be driven: the mounted browser tab's own session, or (when there is
-         no tab yet) the right pane the user is looking at. */
-      const driven = document.querySelector('webview');
-      const currentSession = ownerSession(driven) || visibleSession();
-      if (callerSession !== '' && currentSession !== '' && callerSession !== currentSession) {
-        return {
-          error: 'inactive-session',
-          requestedSession: callerSession,
-          visibleSession: currentSession,
-          hint: '侧栏浏览器现在属于另一个会话，工具没有动它。切回发起工具的这个会话来用，或者把 katt-browser 的 driver 换成 headless。',
-        };
+      /* A tool call from session A must not touch the panel showing session B. The
+         exception is opening a page: that can land in A's own (hidden) browser tab
+         with openTabIn, so the page loads in the background and A reveals it later. */
+      const currentSession = visibleSession();
+      const mismatched = callerSession !== '' && currentSession !== '' && callerSession !== currentSession;
+      if (mismatched) {
+        const ownView = [...document.querySelectorAll('webview')].some((view) => ownerSession(view) === callerSession);
+        const canBackgroundOpen = op === 'open' || op === 'navigate';
+        if (!ownView && !canBackgroundOpen) {
+          return {
+            error: 'inactive-session',
+            requestedSession: callerSession,
+            visibleSession: currentSession,
+            hint: '侧栏浏览器现在属于另一个会话，工具没有动它。切回发起工具的这个会话来用，或者把 katt-browser 的 driver 换成 headless。',
+          };
+        }
       }
       if (op === 'open' || op === 'navigate') {
         const url = String((args && args.url) || '');
@@ -761,30 +764,32 @@ window.__ModuleLoader__.load({
         let view = await waitForWebview(1500, callerSession);
         let uiDrove = null;
         if (!view) {
-          // Opening a browser tab with a url parameter makes the shipped panel create its
-          // webview and navigate, which is the only way to bootstrap the guest.
           const right = sidebarRight();
-          if (right && typeof right.openTab === 'function') {
+          /* Background sessions own no mounted tab yet: open the tab inside that
+             session directly, so the page loads while the user is elsewhere and is
+             already there when they switch back. */
+          if (callerSession && right && typeof right.openTabIn === 'function') {
+            try { right.openTabIn(callerSession, 'browser', { params: { url: target }, revealIfOpened: false }); } catch (error) { /* fall through */ }
+            view = await waitForWebview(15000, callerSession);
+          }
+          if (!view && right && typeof right.openTab === 'function') {
+            // Opening a tab with a url parameter makes the shipped panel create its
+            // webview and navigate; only used when the session has no pane to target.
+            const before = new Set(browserTabs().map((tab) => tab.tabId));
             try { right.openTab('browser', { params: { url: target } }); } catch (error) { uiDrove = 'openTab: ' + String(error && error.message ? error.message : error); }
-            /* The panel service opens a tab in whichever session is active; if that
-               turned out to be a different conversation, close it instead of leaving
-               a browser tab in front of the user. */
             if (callerSession) {
-              const opened = browserTabs().filter((tab) => tab.sessionId);
-              if (opened.length > 0 && !opened.some((tab) => tab.sessionId === callerSession)) {
-                for (const tab of opened) {
-                  try { right.closeIn(tab.sessionId, tab.tabId); } catch {}
-                }
-                return {
-                  error: 'inactive-session',
-                  requestedSession: callerSession,
-                  visibleSession: visibleSession(),
-                  hint: '当前活动会话不是发起工具的这个会话，已关掉刚打开的浏览器标签页。切回这个会话再试。',
-                };
-              }
+              await new Promise((resolve) => setTimeout(resolve, 120));
+              const created = browserTabs().filter((tab) => !before.has(tab.tabId));
+              const wrong = created.filter((tab) => tab.sessionId && tab.sessionId !== callerSession);
+              for (const tab of wrong) { try { right.closeIn(tab.sessionId, tab.tabId); } catch {} }
             }
           }
           view = await waitForWebview(15000, callerSession);
+          /* Last resort: neither the session's pane nor openTabIn was available. */
+          if (!view && callerSession && callerSession !== visibleSession()) {
+            pendingOpens.set(callerSession, target);
+            return { error: 'inactive-session', queued: true, requestedSession: callerSession, visibleSession: visibleSession(), hint: '这个会话的右侧栏还没挂载，页面已排队，切回该会话时会自动打开。' };
+          }
         }
         if (!view) {
           uiDrove = uiDrove || 'address-bar';
