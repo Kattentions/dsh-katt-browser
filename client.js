@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.50';
+    const VERSION = '0.9.51';
     /* The phone GUI uses the same client bundle but cannot own an Electron
        <webview>; it must never poll commands or overwrite the desktop's state. */
     const canHostPanel = (() => { try { return Boolean(globalThis.dshDesktop && globalThis.dshDesktop.browser); } catch (error) { return false; } })();
@@ -52,6 +52,9 @@ window.__ModuleLoader__.load({
     /* Hidden tabs have no mounted webview, so the panel cannot report their URL/title.
        Remember what each tab last showed while it was mounted. */
     const tabMemory = new Map();
+    /* Tab ids are only unique inside one session's panel, so every internal table
+       keys tabs by session + id. */
+    const tabKeyOf = (tab) => String((tab && tab.sessionId) || '') + '|' + String((tab && tab.tabId) || '');
     /* Default page for a browser tab opened without a URL ("浏览器" command / Ctrl+T).
        The Host sends the configured value back with every probe reply. */
     let homeUrl = 'https://www.bing.com';
@@ -539,7 +542,7 @@ window.__ModuleLoader__.load({
     function describeBrowserTab(tab, visible) {
       const chip = tabChip(tab.tabId);
       const navigation = tab.navigation && tab.navigation.params ? tab.navigation.params : {};
-      const memory = tabMemory.get(tab.tabId) || null;
+      const memory = tabMemory.get(tabKeyOf(tab)) || null;
       const chipTitle = chip ? String(chip.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
       const navigationUrl = typeof navigation.url === 'string' ? navigation.url : '';
       return {
@@ -550,6 +553,15 @@ window.__ModuleLoader__.load({
         url: navigationUrl || (memory && memory.url ? memory.url.slice(0, 200) : ''),
         remembered: Boolean(!chipTitle && !navigationUrl && memory),
       };
+    }
+
+    function resolveTab(args) {
+      const tabId = String((args && args.tabId) || '');
+      const sessionId = String((args && args.sessionId) || '');
+      const tabs = browserTabs().filter((item) => item.tabId === tabId && (sessionId === '' || item.sessionId === sessionId));
+      if (tabs.length === 0) return { error: '找不到标签：' + tabId + (sessionId === '' ? '' : '（会话 ' + sessionId.slice(0, 12) + '）') };
+      if (tabs.length > 1) return { error: '多个会话有同名标签 ' + tabId + '，请带 sessionId 指定（候选：' + tabs.map((item) => String(item.sessionId || '').slice(0, 12)).join(', ') + '）' };
+      return { tab: tabs[0] };
     }
 
     function browserTabs() {
@@ -788,15 +800,20 @@ window.__ModuleLoader__.load({
       /* Open another tab's page in the current session's panel. */
       if (op === 'open-here') {
         const tabId = String((args && args.tabId) || '');
-        const tab = browserTabs().find((item) => item.tabId === tabId);
-        const memory = tabId ? tabMemory.get(tabId) : null;
+        const resolvedTab = tabId ? resolveTab(args) : { tab: null };
+        if (resolvedTab.error) return { error: resolvedTab.error };
+        const tab = resolvedTab.tab || null;
+        const memory = tab ? tabMemory.get(tabKeyOf(tab)) || null : null;
         const navigation = tab && tab.navigation && tab.navigation.params ? tab.navigation.params : {};
         const url = String((args && args.url) || '') || (typeof navigation.url === 'string' ? navigation.url : '') || (memory && memory.url ? memory.url : '');
         if (!url) return { error: '这个标签页没有可用的 URL（可能还没被看到过）' };
-        const right = sidebarRight();
-        if (!right || typeof right.openTab !== 'function') return { error: '面板不支持 openTab' };
-        right.openTab('browser', { params: { url } });
-        return { ok: true, tabId, url };
+        const session = visibleSession();
+        if (!session) return { ok: false, error: '没有可见会话，无法在这里打开', url };
+        /* Reuse the real open path: it bootstraps the panel, waits for the guest and
+           retries loadURL, which a bare openTab + loadURL race gets wrong. */
+        const opened = await runCommand('open', { url, session });
+        if (opened && opened.error) return { ok: false, error: opened.error, url, session };
+        return { ok: true, tabId, url, session, state: opened && opened.state ? opened.state : null };
       }
       /* Queue first: arrives when the caller's own pane is not the visible one. */
       if (op === 'queueOpen') {
@@ -1056,17 +1073,19 @@ window.__ModuleLoader__.load({
         return { ok: true, closed, remaining: browserTabs().length };
       }
       if (op === 'tab-switch') {
-        const tabId = String(args.tabId || '');
-        const tab = browserTabs().find((item) => item.tabId === tabId);
-        if (!tab) throw new Error('找不到标签：' + tabId);
+        const resolvedTab = resolveTab(args);
+        if (resolvedTab.error) throw new Error(resolvedTab.error);
+        const tab = resolvedTab.tab;
+        const tabId = tab.tabId;
         const activated = await activateTab(tabId);
         const view = await ensureVisibleWebview();
         return { ok: activated, tabId, title: tab.title || null, src: view ? view.getAttribute('src') : null };
       }
       if (op === 'tab-close') {
-        const tabId = String(args.tabId || '');
-        const tab = browserTabs().find((item) => item.tabId === tabId);
-        if (!tab) return { ok: false, error: '找不到标签：' + tabId };
+        const resolvedTab = resolveTab(args);
+        if (resolvedTab.error) return { ok: false, error: resolvedTab.error };
+        const tab = resolvedTab.tab;
+        const tabId = tab.tabId;
         const right = sidebarRight();
         if (right && tab.sessionId && typeof right.closeIn === 'function') {
           try { right.closeIn(tab.sessionId, tabId); } catch {}
@@ -1362,13 +1381,13 @@ window.__ModuleLoader__.load({
         for (const view of document.querySelectorAll('webview')) {
           const tabId = tabIdOf(view);
           if (!tabId) continue;
-          tabMemory.set(tabId, {
+          tabMemory.set(tabKeyOf({ sessionId: ownerSession(view), tabId }), {
             url: typeof view.getURL === 'function' ? String(view.getURL() || '') : '',
             title: typeof view.getTitle === 'function' ? String(view.getTitle() || '') : '',
             at: Date.now(),
           });
         }
-        const alive = new Set(browserTabs().map((tab) => tab.tabId));
+        const alive = new Set(browserTabs().map((tab) => tabKeyOf(tab)));
         for (const key of [...tabMemory.keys()]) { if (!alive.has(key)) tabMemory.delete(key); }
       } catch (error) { /* best effort */ }
       replayPendingOpen();
@@ -1693,6 +1712,7 @@ window.__ModuleLoader__.load({
               h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
                 h('span', { style: { fontWeight: 500 } }, entry.url || '（无网址）'),
                 h('span', { style: metaStyle }, entry.sessionId.slice(0, 26))),
+              entry.url ? h('button', { onClick: () => { try { const right = sidebarRight(); if (right && typeof right.openTab === 'function') right.openTab('browser', { params: { url: entry.url } }); pendingOpens.delete(entry.sessionId); } catch (error) { /* gone */ } window.setTimeout(refresh, 200); }, style: buttonStyle }, '在这里打开') : null,
               h('button', { onClick: () => cancelQueued(entry.sessionId), style: buttonStyle }, '取消'))));
       return h('section',
         { style: { display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 720, padding: '8px 0', color: 'var(--dsw-alias-label-primary)' } },

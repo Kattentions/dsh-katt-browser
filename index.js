@@ -1253,14 +1253,14 @@ function buildTools(browser) {
           const tabId = String((args && args.tabId) || '');
           const url = String((args && args.url) || '');
           if (!tabId && !url) return { error: 'open-here 需要 tabId 或 url' };
-          return browser.openHere?.(tabId, url) || { error: '当前驱动不支持 open-here' };
+          return browser.openHere?.(tabId, url, args && args.session) || { error: '当前驱动不支持 open-here' };
         }
         if (action === 'cancel-queued') {
           return browser.cancelQueued?.(args && args.session) || { error: '当前驱动不支持取消排队' };
         }
         if (action === 'switch') {
           if (!args || !args.tabId) return { error: 'switch 需要 tabId' };
-          return browser.tabSwitch(args.tabId);
+          return browser.tabSwitch(args.tabId, args.session);
         }
         if (action === 'new') {
           if (!args || !args.url) return { error: 'new 需要 url' };
@@ -1268,7 +1268,7 @@ function buildTools(browser) {
         }
         if (action === 'close') {
           if (!args || !args.tabId) return { error: 'close 需要 tabId' };
-          return browser.tabClose(args.tabId);
+          return browser.tabClose(args.tabId, args.session);
         }
         return browser.listTabs(Boolean(args && args.closeExtras));
       },

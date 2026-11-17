@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.9.51
+
+- 修标签页 id 的假设错误：DSH 的 tabId 只在**单个会话内**唯一，两个会话都可能存在 tab14。现在所有内部表（tab 记忆等）按「会话 + tabId」做键；`browser_tabs` 的 switch/close/open-here 支持可选 `session`，不传而遇到同名标签时返回明确错误并列出候选，不再可能关错会话的标签。
+- 「在这里打开」改成复用已验证的 open 路径（bootstrap 面板 → 等 guest → 重试 loadURL），不再直接 openTab 后自己 loadURL：实测 `open-here url=https://example.com/` 返回 `state.url: https://example.com/，title: Example Domain`。
+- 排队行的「在这里打开」在打开后会把该排队项从队列移除，避免切回会话时再自动打开一次。
+
 ## 0.9.50
 
 - 设置 → 浏览器列表现在显示**会话标题**而不只是 id：宿主把 `sessionTitles` 映射放进 probe 回复（覆盖有 webview 的会话和所有带标签页的会话），实测显示成「临时 · 浏览器标签页」「FEMA · 浏览器标签页」「NSGA · 浏览器标签页」，一眼能看出标签属于哪个对话。
