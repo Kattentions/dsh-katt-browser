@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     const PULL_URL = '/api/katt-browser/pull';
     const HELLO_URL = '/api/katt-browser/client-hello';
     const OPEN_FILE_URL = '/api/katt-browser/open-file';
-    const VERSION = '0.9.24';
+    const VERSION = '0.9.25';
 
 
     const ORIGINS = [''];
@@ -628,6 +628,70 @@ window.__ModuleLoader__.load({
       scan();
     }
 
+    /**
+     * Omnibox: a value with a scheme or a host-like shape is a URL; anything else is
+     * a search on the configured home's engine (Bing). Mirrors how Edge treats the
+     * address bar, so typing "bing" searches instead of failing to resolve a host.
+     */
+    function resolveAddress(raw) {
+      const text = String(raw || '').trim();
+      if (text === '') return text;
+      if (/^[a-z][a-z\d+.-]*:/i.test(text)) return text;
+      if (text.startsWith('//')) return 'https:' + text;
+      const hostPort = /^(?:localhost|\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3}|[a-z\d-]+(?:\.[a-z\d-]+)+)(?::\d+)?(?:[/?#].*)?$/i;
+      if (!/\s/.test(text) && hostPort.test(text)) return 'https://' + text;
+      return 'https://www.bing.com/search?q=' + encodeURIComponent(text);
+    }
+
+    function installOmniboxSearch() {
+      if (typeof window === 'undefined' || window.__kattOmniboxSearch) return;
+      window.__kattOmniboxSearch = true;
+      const isAddressInput = (el) => {
+        if (!el || el.tagName !== 'INPUT') return false;
+        return /HTTP|地址|address/i.test(String(el.getAttribute('placeholder') || '') + ' ' + String(el.getAttribute('aria-label') || ''));
+      };
+      const boxOf = (el) => (el && el.closest ? (el.closest('[class*="addressBox"]') || el.closest('form')) : null);
+      const setValue = (input, value) => {
+        try {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        } catch (error) { return false; }
+      };
+      const submit = (input) => {
+        const box = boxOf(input);
+        const go = box && box.querySelector('button[type="submit"], button[class*="addressGo"], button[aria-label="前往"], button[aria-label="Go"]');
+        setTimeout(() => { if (go && go.isConnected) { try { go.click(); } catch (error) { /* gone */ } } }, 60);
+      };
+      /* Enter inside the address bar: rewrite a search term before the built-in parser
+         turns it into a bogus hostname. */
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || !isAddressInput(event.target)) return;
+        const raw = String(event.target.value || '');
+        const next = resolveAddress(raw);
+        if (next === raw.trim()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (setValue(event.target, next)) submit(event.target);
+      }, true);
+      /* The 前往 button reads the same value; intercept it too. */
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        const go = target && target.closest ? target.closest('button[type="submit"], button[class*="addressGo"], button[aria-label="前往"], button[aria-label="Go"]') : null;
+        if (!go) return;
+        const box = go.closest('[class*="addressBox"]') || go.closest('form');
+        const input = box && box.querySelector('input');
+        if (!isAddressInput(input)) return;
+        const raw = String(input.value || '');
+        const next = resolveAddress(raw);
+        if (next === raw.trim()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (setValue(input, next)) submit(input);
+      }, true);
+    }
+
     async function ensurePanelTab() {
       // Do not create an empty tab here: the bootstrap below opens one tab that already
       // carries the target URL, otherwise every first open would leave an extra empty tab.
@@ -678,7 +742,7 @@ window.__ModuleLoader__.load({
       }
       if (op === 'open' || op === 'navigate') {
         const url = String((args && args.url) || '');
-        const target = /^(https?:|about:|data:|file:)/i.test(url) ? url : 'https://' + url;
+        const target = resolveAddress(url);
         await ensurePanelTab();
         let view = await waitForWebview(1500);
         let uiDrove = null;
@@ -1406,6 +1470,7 @@ window.__ModuleLoader__.load({
         installFileOpenInterceptor();
         installFileOpenServiceInterceptor();
         installHomeTabDefault();
+        installOmniboxSearch();
         if (pageStateTimer) clearInterval(pageStateTimer);
         pageStateTimer = setInterval(heartbeat, 8000);
         ctx.effect(() => () => {
