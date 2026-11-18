@@ -172,6 +172,7 @@ session that invoked them, and never navigate a page another session is showing.
 - **Per-session page memory**: closing the tab, pressing Ctrl+T or restarting the app returns that session to its last page instead of the home page. Turn off with `restoreLastPage: false`.
 - **headless driver**: one browser and profile per session (`dataDir/sessions/<sessionId>`); cookies, history and page state are never shared, and `maxHeadlessBrowsers` caps concurrency.
 - **Panel visibility**: tool calls never open or switch the sidebar on their own. Reading (snapshot, text, console, network, cookies) and navigation work with the panel collapsed; real mouse/keyboard input needs it open and returns a `panelHidden` hint instead of failing silently. Set `revealPanel: true` if you *want* tools to reveal it.
+- **Login state follows the session**: the sidebar panel and the background headless browser of the same session share one login state at `~/.dsh/katt-browser/session-state/<session>.json`. Mirrored: cookies (including HttpOnly), localStorage, sessionStorage and IndexedDB (up to 5 databases, `idbLimit` rows per store, 50 by default). The panel side captures on page change (checked every 1.5s); the background side captures after a tool call and injects it back when you return to the panel, then reloads. Cache Storage and Service Workers are not mirrored (large, no login material). Login state never crosses sessions.
 
 ## Known limits
 

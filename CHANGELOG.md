@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.9.71
+
+- 会话登录态同步补齐 IndexedDB：面板 webview 和后台无头浏览器之间，除 cookie / localStorage / sessionStorage 外，现在也镜像 IndexedDB（最多 5 个库，每库 `idbLimit` 条，默认 50）。登录令牌存 IDB 的站点（Firebase 系、部分 SPA）切会话不再掉登录。
+- 自测（`lib/storage.js` 的真实表达式，不是另写一份）：页面写入 `katt-test` 库 2 条记录 + `katt_ls` 键 → 快照得到 `idb=katt-test:auth=2` → 清空库和 localStorage → 还原 `true` → 2 条记录和 localStorage 全部回填。
+- 不镜像 CacheStorage / Service Worker：PWA 缓存是几百 KB~MB 的 base64，且不含登录态；只影响离线首屏，不影响登录。
+- 修：`GET /katt/config` 返回的 `version` 之前写死 `0.7.0`，现在读 `package.json` 真实版本（诊断和外部脚本判断版本不再被骗）。
+
 ## 0.9.70
 
 - 方案 A 落地：面板 webview 和后台无头浏览器之间**按会话同步登录态**（不再各登各的）。

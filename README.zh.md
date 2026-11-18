@@ -185,6 +185,7 @@ browser_cookies load name=work   -> storageRestored: true
 - **每会话页面记忆**：关掉标签、Ctrl+T 新开、或应用重启后，浏览器回到该会话上次的页面，而不是永远回到首页；`restoreLastPage: false` 可关掉。
 - **headless 驱动**：每会话一个独立浏览器实例与 profile（`dataDir/sessions/<sessionId>`），Cookie、历史、页面状态互不共享；实例数受 `maxHeadlessBrowsers` 限制。
 - **面板可见性**：工具操作不会主动展开或切换右侧栏。面板收起时，读页面（快照/文本/console/网络/Cookie）和导航照常工作；真实鼠标/键盘输入需要面板展开，会返回 `panelHidden` 提示而不是静默失败。想让工具展开面板，把 `revealPanel` 设成 `true`。
+- **登录态跟会话走**：同一会话的右侧栏面板和后台无头浏览器共用一份登录态，存在 `~/.dsh/katt-browser/session-state/<会话>.json`。同步内容 = Cookie（含 HttpOnly）+ localStorage + sessionStorage + IndexedDB（最多 5 个库，每库 `idbLimit` 条，默认 50）。面板侧页面一变就抓（每 1.5 秒检查），后台调完工具抓回来、切回面板时注入并 reload。Cache Storage / Service Worker 不镜像（体积大且不含登录态）。别的会话的登录态不会流进当前会话。
 
 ## 已知限制
 

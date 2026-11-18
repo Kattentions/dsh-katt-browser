@@ -15,7 +15,13 @@ import { WebviewSession } from './lib/webview.js';
 import { HybridSession } from './lib/hybrid.js';
 import { listServe, startServe, startServeAuto, stopAllServe, stopServe } from './lib/serve.js';
 import { adaptHeadless } from './lib/headless-compat.js';
+import { storageRestoreExpression, storageSnapshotExpression } from './lib/storage.js';
 import z from '@deepseek-ai/schemastery';
+
+/** Real plugin version, so /katt/config and diagnostics stop reporting a stale literal. */
+const PKG_VERSION = (() => {
+  try { return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; }
+})();
 
 /** Plugin configuration (declared so the DSH settings layer can validate it). */
 export const Config = z.object({
@@ -951,27 +957,14 @@ class BrowserSession {
 
   async storageSnapshot() {
     await this.ensure();
-    const raw = await this.evaluate(`JSON.stringify({
-      origin: location.origin,
-      local: (() => { try { return Object.fromEntries(Object.entries(localStorage).slice(0, 200)); } catch (error) { return {}; } })(),
-      session: (() => { try { return Object.fromEntries(Object.entries(sessionStorage).slice(0, 200)); } catch (error) { return {}; } })(),
-    })`);
+    const raw = await this.evaluate(storageSnapshotExpression(Number(this.config && this.config.idbLimit) || 50));
     try { return raw ? JSON.parse(raw) : null; } catch (error) { return null; }
   }
 
   async restoreStorage(snapshot) {
     if (!snapshot || !snapshot.origin) return false;
     await this.ensure();
-    const payload = JSON.stringify({ origin: snapshot.origin || '', local: snapshot.local || {}, session: snapshot.session || {} });
-    const result = await this.evaluate(`(async () => {
-      const snapshot = ${payload};
-      if (location.origin !== snapshot.origin) return false;
-      try {
-        for (const [key, value] of Object.entries(snapshot.local)) localStorage.setItem(key, String(value));
-        for (const [key, value] of Object.entries(snapshot.session)) sessionStorage.setItem(key, String(value));
-        return true;
-      } catch (error) { return false; }
-    })()`);
+    const result = await this.evaluate(storageRestoreExpression(snapshot));
     return Boolean(result);
   }
 
@@ -1677,7 +1670,7 @@ export function apply(ctx, config = {}) {
   const handlers = {
     [ROUTE_CONFIG]: (req, res) => {
       if (preflight(req, res)) return;
-      sendJson(res, 200, { driver, version: '0.7.0' }, CORS_HEADERS);
+      sendJson(res, 200, { driver, version: PKG_VERSION }, CORS_HEADERS);
     },
     [ROUTE_STATE]: (req, res) => {
       if (preflight(req, res)) return;
